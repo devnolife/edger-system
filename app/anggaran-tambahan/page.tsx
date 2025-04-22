@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,6 +28,7 @@ import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useToast } from "@/hooks/use-toast"
 import { useSearchParams } from "next/navigation"
+import { formatRupiah } from "@/lib/format-rupiah"
 import {
   getAdditionalAllocations,
   createAdditionalAllocation,
@@ -361,8 +363,7 @@ export default function AnggaranTambahan() {
                         <span className="font-medium">Deskripsi:</span> {relatedExpenseDetails.description}
                       </p>
                       <p>
-                        <span className="font-medium">Jumlah:</span> Rp{" "}
-                        {relatedExpenseDetails.amount.toLocaleString("id-ID")}
+                        <span className="font-medium">Jumlah:</span> {formatRupiah(relatedExpenseDetails.amount)}
                       </p>
                     </div>
                   </CardContent>
@@ -392,17 +393,7 @@ export default function AnggaranTambahan() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="amount">Jumlah Alokasi</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-3 text-muted-foreground">Rp</span>
-                    <Input
-                      id="amount"
-                      type="number"
-                      placeholder="0"
-                      className="pl-10 rounded-lg"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                    />
-                  </div>
+                  <RupiahInput id="amount" placeholder="0" className="rounded-lg" value={amount} onChange={setAmount} />
                 </div>
                 <div className="space-y-2">
                   <Label>Tanggal Permintaan</Label>
@@ -483,7 +474,7 @@ export default function AnggaranTambahan() {
             <div className="gradient-bg-1 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Alokasi</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.total.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.total)}</div>
               </CardContent>
             </div>
           </Card>
@@ -493,7 +484,7 @@ export default function AnggaranTambahan() {
             <div className="gradient-bg-2 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Alokasi Disetujui</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.approved.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.approved)}</div>
               </CardContent>
             </div>
           </Card>
@@ -503,7 +494,7 @@ export default function AnggaranTambahan() {
             <div className="gradient-bg-3 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Menunggu Persetujuan</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.pending.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.pending)}</div>
               </CardContent>
             </div>
           </Card>
@@ -554,7 +545,7 @@ export default function AnggaranTambahan() {
                   <TableHead className="font-display">Anggaran Asal</TableHead>
                   <TableHead className="font-display">Departemen</TableHead>
                   <TableHead className="font-display">Tanggal</TableHead>
-                  <TableHead className="text-right font-display">Jumlah (Rp)</TableHead>
+                  <TableHead className="text-right font-display">Jumlah</TableHead>
                   <TableHead className="font-display">Status</TableHead>
                   <TableHead className="text-right font-display">Tindakan</TableHead>
                 </TableRow>
@@ -598,9 +589,7 @@ export default function AnggaranTambahan() {
                         </Badge>
                       </TableCell>
                       <TableCell>{allocation.requestDate}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        {allocation.amount.toLocaleString("id-ID")}
-                      </TableCell>
+                      <TableCell className="text-right font-medium">{formatRupiah(allocation.amount)}</TableCell>
                       <TableCell>
                         <Badge
                           className="rounded-full"
@@ -726,7 +715,7 @@ export default function AnggaranTambahan() {
                         <CardTitle className="text-sm">Jumlah</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-lg font-medium">Rp {selectedAllocation.amount.toLocaleString("id-ID")}</p>
+                        <p className="text-lg font-medium">{formatRupiah(selectedAllocation.amount)}</p>
                       </CardContent>
                     </Card>
                     <Card>
@@ -833,9 +822,7 @@ export default function AnggaranTambahan() {
                           </div>
                           <div>
                             <h4 className="text-sm font-medium text-muted-foreground">Jumlah</h4>
-                            <p className="font-medium">
-                              Rp {selectedAllocation.relatedExpense.amount.toLocaleString("id-ID")}
-                            </p>
+                            <p className="font-medium">{formatRupiah(selectedAllocation.relatedExpense.amount)}</p>
                           </div>
                           <div>
                             <h4 className="text-sm font-medium text-muted-foreground">Status Pengeluaran</h4>

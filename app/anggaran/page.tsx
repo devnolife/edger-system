@@ -5,6 +5,7 @@ import { Separator } from "@/components/ui/separator"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import { formatRupiah } from "@/lib/format-rupiah"
 import { CalendarIcon, Edit, Eye, Plus, Search, Trash } from "lucide-react"
 import { format } from "date-fns"
 import { motion } from "framer-motion"
@@ -37,8 +39,7 @@ export default function Anggaran() {
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [startDate, setStartDate] = useState<Date>()
-  const [endDate, setEndDate] = useState<Date>()
+  const [creationDate, setCreationDate] = useState<Date>(new Date())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("active")
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
@@ -51,10 +52,10 @@ export default function Anggaran() {
     totalAdditional: 0,
     totalAvailable: 0,
   })
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false)
 
   // Form state
   const [budgetName, setBudgetName] = useState("")
-  const [department, setDepartment] = useState("")
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
 
@@ -103,10 +104,7 @@ export default function Anggaran() {
       (activeTab === "draft" && budget.status === "draft") ||
       activeTab === "all"
 
-    const matchesSearch =
-      budget.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      budget.id.includes(searchTerm) ||
-      budget.department.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = budget.name.toLowerCase().includes(searchTerm.toLowerCase()) || budget.id.includes(searchTerm)
 
     const matchesStatus = statusFilter === "all" || budget.status === statusFilter
 
@@ -117,7 +115,7 @@ export default function Anggaran() {
 
   // Handle budget creation
   const handleCreateBudget = async () => {
-    if (!budgetName || !department || !amount || !startDate || !endDate) {
+    if (!budgetName || !amount || !creationDate) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields",
@@ -128,10 +126,8 @@ export default function Anggaran() {
 
     const formData = new FormData()
     formData.append("name", budgetName)
-    formData.append("department", department)
     formData.append("amount", amount)
-    formData.append("startDate", startDate.toISOString().split("T")[0])
-    formData.append("endDate", endDate.toISOString().split("T")[0])
+    formData.append("creationDate", creationDate.toISOString().split("T")[0])
     formData.append("status", "draft")
     formData.append("description", description)
     formData.append("createdBy", user?.name || "Unknown User")
@@ -152,11 +148,9 @@ export default function Anggaran() {
 
         // Reset form and close dialog
         setBudgetName("")
-        setDepartment("")
         setAmount("")
         setDescription("")
-        setStartDate(undefined)
-        setEndDate(undefined)
+        setCreationDate(new Date())
         setIsDialogOpen(false)
       } else {
         toast({
@@ -177,25 +171,34 @@ export default function Anggaran() {
 
   // Open budget details
   const openBudgetDetails = async (budget: Budget) => {
+    setIsLoadingDetails(true)
+    setSelectedBudget(budget) // Set initial data from the list
+    setIsDetailsOpen(true)
+
     try {
+      // Add a small delay to prevent rate limiting
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
       const result = await getBudgetById(budget.id)
       if (result.success) {
         setSelectedBudget(result.budget)
-        setIsDetailsOpen(true)
       } else {
+        // If there's an error, we'll still show the dialog with the basic data we have
         toast({
-          title: "Error",
-          description: result.error || "Failed to fetch budget details",
-          variant: "destructive",
+          title: "Warning",
+          description: "Could not load complete budget details. Showing limited information.",
+          variant: "default",
         })
       }
     } catch (error) {
       console.error("Error fetching budget details:", error)
       toast({
         title: "Error",
-        description: "An unexpected error occurred",
+        description: "An unexpected error occurred while loading details",
         variant: "destructive",
       })
+    } finally {
+      setIsLoadingDetails(false)
     }
   }
 
@@ -222,7 +225,7 @@ export default function Anggaran() {
           <h2 className="text-3xl font-display font-bold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Manajemen Anggaran
           </h2>
-          <p className="text-muted-foreground">Buat dan kelola anggaran untuk berbagai departemen</p>
+          <p className="text-muted-foreground">Buat dan kelola anggaran untuk berbagai kebutuhan</p>
         </div>
         {canManageBudgets && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -240,88 +243,39 @@ export default function Anggaran() {
                 <DialogDescription>Isi detail anggaran baru. Klik simpan setelah selesai.</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="budget-name">Nama Anggaran</Label>
-                    <Input
-                      id="budget-name"
-                      placeholder="Masukkan nama anggaran"
-                      className="rounded-lg"
-                      value={budgetName}
-                      onChange={(e) => setBudgetName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="department">Departemen</Label>
-                    <Select value={department} onValueChange={setDepartment}>
-                      <SelectTrigger id="department" className="rounded-lg">
-                        <SelectValue placeholder="Pilih departemen" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl">
-                        <SelectItem value="Operasional">Operasional</SelectItem>
-                        <SelectItem value="Pemasaran">Pemasaran</SelectItem>
-                        <SelectItem value="IT">IT</SelectItem>
-                        <SelectItem value="SDM">SDM</SelectItem>
-                        <SelectItem value="Keuangan">Keuangan</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="budget-name">Nama Anggaran</Label>
+                  <Input
+                    id="budget-name"
+                    placeholder="Masukkan nama anggaran"
+                    className="rounded-lg"
+                    value={budgetName}
+                    onChange={(e) => setBudgetName(e.target.value)}
+                  />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Tanggal Mulai</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
-                          <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                          {startDate ? format(startDate, "PPP") : "Pilih tanggal"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 rounded-xl" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={startDate}
-                          onSelect={setStartDate}
-                          initialFocus
-                          className="rounded-xl"
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Tanggal Selesai</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
-                          <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                          {endDate ? format(endDate, "PPP") : "Pilih tanggal"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 rounded-xl" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={endDate}
-                          onSelect={setEndDate}
-                          initialFocus
-                          className="rounded-xl"
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                <div className="space-y-2">
+                  <Label>Tanggal Pembuatan</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
+                        <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
+                        {creationDate ? format(creationDate, "PPP") : "Pilih tanggal"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={creationDate}
+                        onSelect={setCreationDate}
+                        initialFocus
+                        className="rounded-xl"
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="amount">Jumlah Anggaran</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-3 text-muted-foreground">Rp</span>
-                    <Input
-                      id="amount"
-                      type="number"
-                      placeholder="0"
-                      className="pl-10 rounded-lg"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                    />
-                  </div>
+                  <RupiahInput id="amount" placeholder="0" className="rounded-lg" value={amount} onChange={setAmount} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Deskripsi</Label>
@@ -379,7 +333,7 @@ export default function Anggaran() {
             <div className="gradient-bg-1 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Anggaran Aktif</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.totalBudget.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.totalBudget)}</div>
               </CardContent>
             </div>
           </Card>
@@ -389,7 +343,7 @@ export default function Anggaran() {
             <div className="gradient-bg-2 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Terpakai</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.totalSpent.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.totalSpent)}</div>
               </CardContent>
             </div>
           </Card>
@@ -399,7 +353,7 @@ export default function Anggaran() {
             <div className="gradient-bg-3 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Alokasi Tambahan</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.totalAdditional.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.totalAdditional)}</div>
               </CardContent>
             </div>
           </Card>
@@ -409,7 +363,7 @@ export default function Anggaran() {
             <div className="gradient-bg-4 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Sisa Anggaran</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.totalAvailable.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.totalAvailable)}</div>
               </CardContent>
             </div>
           </Card>
@@ -457,8 +411,7 @@ export default function Anggaran() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="font-display">ID</TableHead>
                   <TableHead className="font-display">Nama Anggaran</TableHead>
-                  <TableHead className="font-display">Departemen</TableHead>
-                  <TableHead className="font-display">Periode</TableHead>
+                  <TableHead className="font-display">Tanggal Pembuatan</TableHead>
                   <TableHead className="text-right font-display">Jumlah (Rp)</TableHead>
                   <TableHead className="font-display">Penggunaan</TableHead>
                   <TableHead className="text-right font-display">Sisa (Rp)</TableHead>
@@ -473,7 +426,7 @@ export default function Anggaran() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <div className="flex justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -482,7 +435,7 @@ export default function Anggaran() {
                   </TableRow>
                 ) : filteredBudgets.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <p className="text-muted-foreground">Tidak ada data anggaran yang ditemukan</p>
                     </TableCell>
                   </TableRow>
@@ -506,20 +459,8 @@ export default function Anggaran() {
                       >
                         <TableCell className="font-medium">{budget.id}</TableCell>
                         <TableCell>{budget.name}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="bg-primary/10 text-primary border-primary/20 rounded-full"
-                          >
-                            {budget.department}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {budget.startDate} - {budget.endDate}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {budget.amount.toLocaleString("id-ID")}
-                        </TableCell>
+                        <TableCell>{budget.startDate}</TableCell>
+                        <TableCell className="text-right font-medium">{formatRupiah(budget.amount)}</TableCell>
                         <TableCell className="w-40">
                           <div className="space-y-1">
                             <Progress value={percentSpent} className={cn("h-2 rounded-full", progressColor)} />
@@ -529,9 +470,7 @@ export default function Anggaran() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {budget.availableAmount.toLocaleString("id-ID")}
-                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatRupiah(budget.availableAmount)}</TableCell>
                         <TableCell>
                           <Badge
                             className="rounded-full"
@@ -587,156 +526,160 @@ export default function Anggaran() {
                 <DialogTitle className="text-xl font-display">{selectedBudget.name}</DialogTitle>
                 <DialogDescription>Detail anggaran dan penggunaannya</DialogDescription>
               </DialogHeader>
-              <Tabs defaultValue="overview" className="mt-4">
-                <TabsList className="grid w-full grid-cols-3 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
-                  <TabsTrigger
-                    value="overview"
-                    className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                  >
-                    Ringkasan
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="expenses"
-                    className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                  >
-                    Pengeluaran
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="allocations"
-                    className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                  >
-                    Alokasi Tambahan
-                  </TabsTrigger>
-                </TabsList>
 
-                {/* Overview Tab */}
-                <TabsContent value="overview" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">ID Anggaran</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedBudget.id}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Departemen</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedBudget.department}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Periode</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">
-                          {selectedBudget.startDate} s/d {selectedBudget.endDate}
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Status</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <Badge
-                          className="rounded-full"
-                          variant={
-                            selectedBudget.status === "active"
-                              ? "default"
+              {isLoadingDetails ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mb-4"></div>
+                  <p className="text-muted-foreground">Memuat detail anggaran...</p>
+                </div>
+              ) : (
+                <Tabs defaultValue="overview" className="mt-4">
+                  <TabsList className="grid w-full grid-cols-3 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
+                    <TabsTrigger
+                      value="overview"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Ringkasan
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="expenses"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Pengeluaran
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="allocations"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Alokasi Tambahan
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Overview Tab */}
+                  <TabsContent value="overview" className="space-y-4 mt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">ID Anggaran</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-lg font-medium">{selectedBudget.id}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Tanggal Pembuatan</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-lg font-medium">{selectedBudget.startDate}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Dibuat Oleh</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-lg font-medium">{selectedBudget.createdBy}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Status</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Badge
+                            className="rounded-full"
+                            variant={
+                              selectedBudget.status === "active"
+                                ? "default"
+                                : selectedBudget.status === "completed"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                          >
+                            {selectedBudget.status === "active"
+                              ? "Aktif"
                               : selectedBudget.status === "completed"
-                                ? "outline"
-                                : "secondary"
-                          }
-                        >
-                          {selectedBudget.status === "active"
-                            ? "Aktif"
-                            : selectedBudget.status === "completed"
-                              ? "Selesai"
-                              : "Draft"}
-                        </Badge>
+                                ? "Selesai"
+                                : "Draft"}
+                          </Badge>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Ringkasan Keuangan</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-6">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Anggaran Awal:</span>
+                            <span className="font-medium">{formatRupiah(selectedBudget.amount)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total Terpakai:</span>
+                            <span className="font-medium">{formatRupiah(selectedBudget.spentAmount)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Alokasi Tambahan:</span>
+                            <span className="font-medium">{formatRupiah(selectedBudget.additionalAmount || 0)}</span>
+                          </div>
+                          <Separator className="my-2" />
+                          <div className="flex justify-between font-bold">
+                            <span>Sisa Anggaran:</span>
+                            <span>{formatRupiah(selectedBudget.availableAmount)}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Penggunaan Anggaran</span>
+                              <span>{((selectedBudget.spentAmount / selectedBudget.amount) * 100).toFixed(0)}%</span>
+                            </div>
+                            <Progress
+                              value={(selectedBudget.spentAmount / selectedBudget.amount) * 100}
+                              className="h-3 rounded-full"
+                            />
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
-                  </div>
+                  </TabsContent>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Ringkasan Keuangan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-6">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Anggaran Awal:</span>
-                          <span className="font-medium">Rp {selectedBudget.amount.toLocaleString("id-ID")}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Total Terpakai:</span>
-                          <span className="font-medium">Rp {selectedBudget.spentAmount.toLocaleString("id-ID")}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Alokasi Tambahan:</span>
-                          <span className="font-medium">
-                            Rp {(selectedBudget.additionalAmount || 0).toLocaleString("id-ID")}
-                          </span>
-                        </div>
-                        <Separator className="my-2" />
-                        <div className="flex justify-between font-bold">
-                          <span>Sisa Anggaran:</span>
-                          <span>Rp {selectedBudget.availableAmount.toLocaleString("id-ID")}</span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-sm">
-                            <span>Penggunaan Anggaran</span>
-                            <span>{((selectedBudget.spentAmount / selectedBudget.amount) * 100).toFixed(0)}%</span>
-                          </div>
-                          <Progress
-                            value={(selectedBudget.spentAmount / selectedBudget.amount) * 100}
-                            className="h-3 rounded-full"
-                          />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
+                  {/* Expenses Tab */}
+                  <TabsContent value="expenses" className="mt-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Pengeluaran Terkait</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-muted-foreground mb-4">
+                          Daftar pengeluaran yang terkait dengan anggaran ini akan ditampilkan di sini.
+                        </p>
+                        <Button className="rounded-full" asChild>
+                          <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
 
-                {/* Expenses Tab */}
-                <TabsContent value="expenses" className="mt-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Pengeluaran Terkait</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground mb-4">
-                        Daftar pengeluaran yang terkait dengan anggaran ini akan ditampilkan di sini.
-                      </p>
-                      <Button className="rounded-full" asChild>
-                        <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* Allocations Tab */}
-                <TabsContent value="allocations" className="mt-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Alokasi Tambahan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground mb-4">
-                        Daftar alokasi tambahan untuk anggaran ini akan ditampilkan di sini.
-                      </p>
-                      <Button className="rounded-full" asChild>
-                        <a href={`/anggaran-tambahan?budget=${selectedBudget.id}`}>Lihat Semua Alokasi</a>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
+                  {/* Allocations Tab */}
+                  <TabsContent value="allocations" className="mt-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Alokasi Tambahan</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-muted-foreground mb-4">
+                          Daftar alokasi tambahan untuk anggaran ini akan ditampilkan di sini.
+                        </p>
+                        <Button className="rounded-full" asChild>
+                          <a href={`/anggaran-tambahan?budget=${selectedBudget.id}`}>Lihat Semua Alokasi</a>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </Tabs>
+              )}
             </>
           )}
         </DialogContent>

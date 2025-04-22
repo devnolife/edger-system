@@ -10,10 +10,8 @@ export type BudgetStatus = "active" | "completed" | "draft"
 export interface Budget {
   id: string
   name: string
-  department: string
   amount: number
   startDate: string
-  endDate: string
   status: BudgetStatus
   description?: string
   createdBy: string
@@ -25,10 +23,8 @@ export interface Budget {
 // Validation schema for budget creation
 const budgetSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
-  department: z.string().min(1, "Department is required"),
   amount: z.number().positive("Amount must be positive"),
-  startDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid start date"),
-  endDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid end date"),
+  creationDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid creation date"),
   status: z.enum(["active", "completed", "draft"]),
   description: z.string().optional(),
   createdBy: z.string().min(1, "Creator is required"),
@@ -39,10 +35,8 @@ export async function createBudget(formData: FormData) {
   try {
     // Extract and validate data
     const name = formData.get("name") as string
-    const department = formData.get("department") as string
     const amount = Number.parseFloat(formData.get("amount") as string)
-    const startDate = formData.get("startDate") as string
-    const endDate = formData.get("endDate") as string
+    const creationDate = formData.get("creationDate") as string
     const status = (formData.get("status") as BudgetStatus) || "draft"
     const description = (formData.get("description") as string) || ""
     const createdBy = formData.get("createdBy") as string
@@ -50,10 +44,8 @@ export async function createBudget(formData: FormData) {
     // Validate data
     const validatedData = budgetSchema.parse({
       name,
-      department,
       amount,
-      startDate,
-      endDate,
+      creationDate,
       status,
       description,
       createdBy,
@@ -65,13 +57,12 @@ export async function createBudget(formData: FormData) {
     // Insert into database
     await sql`
       INSERT INTO budgets (
-        id, name, department, amount, start_date, end_date, 
+        id, name, amount, start_date, 
         status, description, created_by
       ) VALUES (
-        ${id}, ${validatedData.name}, ${validatedData.department}, 
-        ${validatedData.amount}, ${formatDateForSQL(validatedData.startDate)}, 
-        ${formatDateForSQL(validatedData.endDate)}, ${validatedData.status}, 
-        ${validatedData.description}, ${validatedData.createdBy}
+        ${id}, ${validatedData.name}, ${validatedData.amount}, 
+        ${formatDateForSQL(validatedData.creationDate)}, 
+        ${validatedData.status}, ${validatedData.description}, ${validatedData.createdBy}
       )
     `
 
@@ -96,10 +87,8 @@ export async function getBudgets() {
       {
         id: string
         name: string
-        department: string
         amount: number
         start_date: string
-        end_date: string
         status: BudgetStatus
         description: string | null
         created_by: string
@@ -134,10 +123,8 @@ export async function getBudgets() {
         return {
           id: budget.id,
           name: budget.name,
-          department: budget.department,
           amount: budget.amount,
           startDate: budget.start_date,
-          endDate: budget.end_date,
           status: budget.status,
           description: budget.description || undefined,
           createdBy: budget.created_by,
@@ -160,74 +147,91 @@ export async function getBudgets() {
 
 // Get a single budget by ID with calculated fields
 export async function getBudgetById(id: string) {
-  try {
-    // Get the budget
-    const budgets = await sql<
-      {
-        id: string
-        name: string
-        department: string
-        amount: number
-        start_date: string
-        end_date: string
-        status: BudgetStatus
-        description: string | null
-        created_by: string
-        created_at: string
-      }[]
-    >`
-      SELECT * FROM budgets WHERE id = ${id}
-    `
+  // Implement retry logic with exponential backoff
+  const maxRetries = 3
+  let retryCount = 0
+  let lastError: any = null
 
-    if (budgets.length === 0) {
-      return { success: false, error: "Budget not found" }
+  while (retryCount < maxRetries) {
+    try {
+      // Get the budget
+      const budgets = await sql<
+        {
+          id: string
+          name: string
+          amount: number
+          start_date: string
+          status: BudgetStatus
+          description: string | null
+          created_by: string
+          created_at: string
+        }[]
+      >`
+        SELECT * FROM budgets WHERE id = ${id}
+      `
+
+      if (budgets.length === 0) {
+        return { success: false, error: "Budget not found" }
+      }
+
+      const budget = budgets[0]
+
+      // Calculate spent amount from expenses
+      const expensesResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM expenses 
+        WHERE budget_id = ${budget.id} AND status = 'approved'
+      `
+      const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
+
+      // Calculate additional allocations
+      const allocationsResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM additional_allocations 
+        WHERE original_budget_id = ${budget.id} AND status = 'approved'
+      `
+      const additionalAmount = Number.parseFloat(allocationsResult[0]?.total || "0")
+
+      // Calculate available amount
+      const availableAmount = budget.amount + additionalAmount - spentAmount
+
+      return {
+        success: true,
+        budget: {
+          id: budget.id,
+          name: budget.name,
+          amount: budget.amount,
+          startDate: budget.start_date,
+          status: budget.status,
+          description: budget.description || undefined,
+          createdBy: budget.created_by,
+          createdAt: budget.created_at,
+          spentAmount,
+          availableAmount,
+          additionalAmount,
+        },
+      }
+    } catch (error) {
+      lastError = error
+
+      // Check if it's a rate limit error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes("Too Many")) {
+        console.log(`Rate limit hit, retrying (${retryCount + 1}/${maxRetries})...`)
+        // Exponential backoff: wait longer between each retry
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, retryCount) * 1000))
+        retryCount++
+      } else {
+        // If it's not a rate limit error, don't retry
+        break
+      }
     }
+  }
 
-    const budget = budgets[0]
-
-    // Calculate spent amount from expenses
-    const expensesResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE budget_id = ${budget.id} AND status = 'approved'
-    `
-    const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
-
-    // Calculate additional allocations
-    const allocationsResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM additional_allocations 
-      WHERE original_budget_id = ${budget.id} AND status = 'approved'
-    `
-    const additionalAmount = Number.parseFloat(allocationsResult[0]?.total || "0")
-
-    // Calculate available amount
-    const availableAmount = budget.amount + additionalAmount - spentAmount
-
-    return {
-      success: true,
-      budget: {
-        id: budget.id,
-        name: budget.name,
-        department: budget.department,
-        amount: budget.amount,
-        startDate: budget.start_date,
-        endDate: budget.end_date,
-        status: budget.status,
-        description: budget.description || undefined,
-        createdBy: budget.created_by,
-        createdAt: budget.created_at,
-        spentAmount,
-        availableAmount,
-        additionalAmount,
-      },
-    }
-  } catch (error) {
-    console.error("Error fetching budget:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "An unknown error occurred",
-    }
+  console.error("Error fetching budget:", lastError)
+  return {
+    success: false,
+    error: lastError instanceof Error ? lastError.message : "An unknown error occurred",
   }
 }
 
@@ -236,10 +240,7 @@ export async function updateBudget(id: string, formData: FormData) {
   try {
     // Extract and validate data
     const name = formData.get("name") as string
-    const department = formData.get("department") as string
     const amount = Number.parseFloat(formData.get("amount") as string)
-    const startDate = formData.get("startDate") as string
-    const endDate = formData.get("endDate") as string
     const status = formData.get("status") as BudgetStatus
     const description = (formData.get("description") as string) || ""
 
@@ -247,19 +248,13 @@ export async function updateBudget(id: string, formData: FormData) {
     const validatedData = z
       .object({
         name: z.string().min(3, "Name must be at least 3 characters"),
-        department: z.string().min(1, "Department is required"),
         amount: z.number().positive("Amount must be positive"),
-        startDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid start date"),
-        endDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid end date"),
         status: z.enum(["active", "completed", "draft"]),
         description: z.string().optional(),
       })
       .parse({
         name,
-        department,
         amount,
-        startDate,
-        endDate,
         status,
         description,
       })
@@ -269,10 +264,7 @@ export async function updateBudget(id: string, formData: FormData) {
       UPDATE budgets 
       SET 
         name = ${validatedData.name}, 
-        department = ${validatedData.department}, 
         amount = ${validatedData.amount}, 
-        start_date = ${formatDateForSQL(validatedData.startDate)}, 
-        end_date = ${formatDateForSQL(validatedData.endDate)}, 
         status = ${validatedData.status}, 
         description = ${validatedData.description},
         updated_at = CURRENT_TIMESTAMP

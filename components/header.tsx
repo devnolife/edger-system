@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { Menu, Bell, User, Sparkles, Sun, Moon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,7 +24,7 @@ export function Header() {
   const { setTheme, theme } = useTheme()
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 items-center gap-4 border-b border-white/10 bg-white/80 backdrop-blur-md dark:bg-black/50 px-4 sm:px-6">
+    <header className="sticky top-0 z-50 flex h-16 items-center gap-4 border-b border-white/10 bg-white/80 backdrop-blur-md dark:bg-black/50 px-4 sm:px-6 lg:ml-64 w-full lg:w-[calc(100%-16rem)]">
       <Sheet>
         <SheetTrigger asChild>
           <Button variant="ghost" size="icon" className="lg:hidden">
@@ -35,16 +36,47 @@ export function Header() {
           <div className="flex h-14 items-center px-4 pt-6">
             <Link href="/" className="flex items-center gap-2 font-display text-white text-xl font-bold">
               <Sparkles className="h-6 w-6" />
-              <span>SisKeu</span>
+              <span>SiKePro UNISMUH</span>
             </Link>
           </div>
           <Sidebar />
         </SheetContent>
       </Sheet>
 
-      <div className="flex items-center gap-2 lg:hidden">
+      <div className="flex items-center gap-3 lg:hidden">
         <Sparkles className="h-5 w-5 text-primary" />
-        <span className="font-display font-bold text-lg">SisKeu</span>
+        <span className="font-display font-bold text-lg">SiKePro UNISMUH</span>
+      </div>
+
+      {/* Logo section - visible on all screens */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Image
+            src="/images/unismuh-logo.png"
+            alt="Universitas Muhammadiyah Makassar"
+            width={40}
+            height={40}
+            className="hidden md:block"
+          />
+          <Image
+            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/LOGO-AKREDITASI-UNGGUL-1EoloT7SBWS1160hBsg07zHNISRMGV.png"
+            alt="AKREDITASI UNGGUL"
+            width={50}
+            height={50}
+            className="hidden md:block"
+          />
+          <Image
+            src="/images/gift-unismuh.png"
+            alt="GREEN ISLAMIC FUTURISTIC"
+            width={50}
+            height={50}
+            className="hidden md:block"
+          />
+          <div className="hidden md:block">
+            <p className="font-display font-bold text-sm leading-tight">Universitas Muhammadiyah Makassar</p>
+            <p className="text-xs text-muted-foreground">Sistem Keuangan Proyek</p>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1"></div>

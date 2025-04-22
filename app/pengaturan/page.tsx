@@ -93,26 +93,26 @@ export default function Pengaturan() {
               <CardContent className="p-6 space-y-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="company-name">Nama Perusahaan</Label>
-                    <Input id="company-name" defaultValue="PT Maju Bersama" className="rounded-lg" />
+                    <Label htmlFor="company-name">Nama Institusi</Label>
+                    <Input id="company-name" defaultValue="Universitas Muhammadiyah Makassar" className="rounded-lg" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tax-id">NPWP</Label>
-                    <Input id="tax-id" defaultValue="01.234.567.8-123.000" className="rounded-lg" />
+                    <Input id="tax-id" defaultValue="02.345.678.9-234.000" className="rounded-lg" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" defaultValue="info@majubersama.com" className="rounded-lg" />
+                    <Input id="email" type="email" defaultValue="info@unismuh.ac.id" className="rounded-lg" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Telepon</Label>
-                    <Input id="phone" defaultValue="+62 21 1234 5678" className="rounded-lg" />
+                    <Input id="phone" defaultValue="+62 411 866972" className="rounded-lg" />
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="address">Alamat</Label>
                     <Textarea
                       id="address"
-                      defaultValue="Jl. Sudirman No. 123, Jakarta Pusat, DKI Jakarta 10220"
+                      defaultValue="Jl. Sultan Alauddin No.259, Gn. Sari, Kec. Rappocini, Kota Makassar, Sulawesi Selatan 90221"
                       className="rounded-lg"
                     />
                   </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,6 +28,7 @@ import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useToast } from "@/hooks/use-toast"
 import { useSearchParams } from "next/navigation"
+import { formatRupiah } from "@/lib/format-rupiah"
 import {
   getExpenses,
   createExpense,
@@ -36,7 +38,7 @@ import {
   type Expense,
   type ExpenseStatus,
 } from "@/app/actions/expense-actions"
-import { getBudgets } from "@/app/actions/budget-actions"
+import { getBudgets, getBudgetById } from "@/app/actions/budget-actions"
 
 export default function Pengeluaran() {
   const { role, user } = useUserRole()
@@ -46,7 +48,6 @@ export default function Pengeluaran() {
 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [departmentFilter, setDepartmentFilter] = useState("all")
   const [expenseDate, setExpenseDate] = useState<Date>()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
@@ -62,11 +63,17 @@ export default function Pengeluaran() {
     withAllocation: 0,
   })
 
+  // Tambahkan state untuk menyimpan informasi anggaran yang dipilih
+  const [selectedBudget, setSelectedBudget] = useState<{
+    id: string
+    name: string
+    availableAmount: number
+  } | null>(null)
+
   // Form state
   const [budgetId, setBudgetId] = useState(budgetIdParam || "")
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
-  const [department, setDepartment] = useState("")
   const [notes, setNotes] = useState("")
 
   // Fetch expenses, budgets, and summary on component mount
@@ -112,7 +119,7 @@ export default function Pengeluaran() {
     fetchData()
   }, [toast, budgetIdParam])
 
-  // Filter expenses based on tab, search, status, and department
+  // Filter expenses based on tab, search, status
   const filteredExpenses = expenses.filter((expense) => {
     const matchesTab =
       (activeTab === "pending" && expense.status === "pending") ||
@@ -127,19 +134,61 @@ export default function Pengeluaran() {
 
     const matchesStatus = statusFilter === "all" || expense.status === statusFilter
 
-    const matchesDepartment = departmentFilter === "all" || expense.department === departmentFilter
-
     const matchesBudget = !budgetIdParam || expense.budgetId === budgetIdParam
 
-    return matchesTab && matchesSearch && matchesStatus && matchesDepartment && matchesBudget
+    return matchesTab && matchesSearch && matchesStatus && matchesBudget
   })
+
+  // Modifikasi fungsi untuk mengambil data anggaran yang dipilih
+  const handleBudgetChange = async (value: string) => {
+    setBudgetId(value)
+
+    if (!value) {
+      setSelectedBudget(null)
+      return
+    }
+
+    try {
+      const result = await getBudgetById(value)
+      if (result.success) {
+        setSelectedBudget({
+          id: result.budget.id,
+          name: result.budget.name,
+          availableAmount: result.budget.availableAmount,
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to fetch budget details",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error fetching budget details:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      })
+    }
+  }
 
   // Handle expense creation
   const handleCreateExpense = async () => {
-    if (!budgetId || !description || !amount || !expenseDate || !department) {
+    if (!budgetId || !description || !amount || !expenseDate) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validasi jumlah pengeluaran tidak melebihi sisa dana
+    if (selectedBudget && Number(amount) > selectedBudget.availableAmount) {
+      toast({
+        title: "Validation Error",
+        description: `Jumlah pengeluaran melebihi sisa dana anggaran (${formatRupiah(selectedBudget.availableAmount)})`,
         variant: "destructive",
       })
       return
@@ -150,7 +199,6 @@ export default function Pengeluaran() {
     formData.append("description", description)
     formData.append("amount", amount)
     formData.append("date", expenseDate.toISOString().split("T")[0])
-    formData.append("department", department)
     formData.append("submittedBy", user?.name || "Unknown User")
     formData.append("notes", notes)
 
@@ -180,9 +228,9 @@ export default function Pengeluaran() {
         setBudgetId(budgetIdParam || "")
         setDescription("")
         setAmount("")
-        setDepartment("")
         setNotes("")
         setExpenseDate(undefined)
+        setSelectedBudget(null)
         setIsDialogOpen(false)
       } else {
         toast({
@@ -310,7 +358,7 @@ export default function Pengeluaran() {
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="budget">Anggaran</Label>
-                <Select value={budgetId} onValueChange={setBudgetId}>
+                <Select value={budgetId} onValueChange={handleBudgetChange}>
                   <SelectTrigger id="budget" className="rounded-lg">
                     <SelectValue placeholder="Pilih anggaran" />
                   </SelectTrigger>
@@ -322,6 +370,16 @@ export default function Pengeluaran() {
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedBudget && (
+                  <div className="mt-2 text-sm">
+                    <span className="text-muted-foreground">Sisa dana: </span>
+                    <span
+                      className={`font-medium ${selectedBudget.availableAmount < 0 ? "text-red-500" : "text-green-600"}`}
+                    >
+                      {formatRupiah(selectedBudget.availableAmount)}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Deskripsi Pengeluaran</Label>
@@ -336,17 +394,7 @@ export default function Pengeluaran() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="amount">Jumlah Pengeluaran</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-3 text-muted-foreground">Rp</span>
-                    <Input
-                      id="amount"
-                      type="number"
-                      placeholder="0"
-                      className="pl-10 rounded-lg"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                    />
-                  </div>
+                  <RupiahInput id="amount" placeholder="0" className="rounded-lg" value={amount} onChange={setAmount} />
                 </div>
                 <div className="space-y-2">
                   <Label>Tanggal Pengeluaran</Label>
@@ -368,21 +416,6 @@ export default function Pengeluaran() {
                     </PopoverContent>
                   </Popover>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="department">Departemen</Label>
-                <Select value={department} onValueChange={setDepartment}>
-                  <SelectTrigger id="department" className="rounded-lg">
-                    <SelectValue placeholder="Pilih departemen" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="Operasional">Operasional</SelectItem>
-                    <SelectItem value="Pemasaran">Pemasaran</SelectItem>
-                    <SelectItem value="IT">IT</SelectItem>
-                    <SelectItem value="SDM">SDM</SelectItem>
-                    <SelectItem value="Keuangan">Keuangan</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="notes">Catatan (Opsional)</Label>
@@ -430,19 +463,6 @@ export default function Pengeluaran() {
             <SelectItem value="rejected">Ditolak</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-          <SelectTrigger className="w-full md:w-[180px] rounded-full border-primary/20">
-            <SelectValue placeholder="Departemen" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="all">Semua Departemen</SelectItem>
-            <SelectItem value="Operasional">Operasional</SelectItem>
-            <SelectItem value="Pemasaran">Pemasaran</SelectItem>
-            <SelectItem value="IT">IT</SelectItem>
-            <SelectItem value="SDM">SDM</SelectItem>
-            <SelectItem value="Keuangan">Keuangan</SelectItem>
-          </SelectContent>
-        </Select>
       </motion.div>
 
       {/* Summary cards */}
@@ -452,7 +472,7 @@ export default function Pengeluaran() {
             <div className="gradient-bg-1 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Pengeluaran</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.total.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.total)}</div>
               </CardContent>
             </div>
           </Card>
@@ -462,7 +482,7 @@ export default function Pengeluaran() {
             <div className="gradient-bg-2 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Pengeluaran Disetujui</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.approved.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.approved)}</div>
               </CardContent>
             </div>
           </Card>
@@ -472,7 +492,7 @@ export default function Pengeluaran() {
             <div className="gradient-bg-3 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Menunggu Persetujuan</CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.pending.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.pending)}</div>
               </CardContent>
             </div>
           </Card>
@@ -484,7 +504,7 @@ export default function Pengeluaran() {
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">
                   Dengan Alokasi Tambahan
                 </CardTitle>
-                <div className="text-2xl font-bold">Rp{summary.withAllocation.toLocaleString("id-ID")}</div>
+                <div className="text-2xl font-bold">{formatRupiah(summary.withAllocation)}</div>
               </CardContent>
             </div>
           </Card>
@@ -533,9 +553,8 @@ export default function Pengeluaran() {
                   <TableHead className="font-display">ID</TableHead>
                   <TableHead className="font-display">Deskripsi</TableHead>
                   <TableHead className="font-display">Anggaran</TableHead>
-                  <TableHead className="font-display">Departemen</TableHead>
                   <TableHead className="font-display">Tanggal</TableHead>
-                  <TableHead className="text-right font-display">Jumlah (Rp)</TableHead>
+                  <TableHead className="text-right font-display">Jumlah</TableHead>
                   <TableHead className="font-display">Status</TableHead>
                   <TableHead className="text-right font-display">Tindakan</TableHead>
                 </TableRow>
@@ -547,7 +566,7 @@ export default function Pengeluaran() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <div className="flex justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -556,7 +575,7 @@ export default function Pengeluaran() {
                   </TableRow>
                 ) : filteredExpenses.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <p className="text-muted-foreground">Tidak ada data pengeluaran yang ditemukan</p>
                     </TableCell>
                   </TableRow>
@@ -573,13 +592,8 @@ export default function Pengeluaran() {
                       <TableCell className="font-medium">{expense.id}</TableCell>
                       <TableCell>{expense.description}</TableCell>
                       <TableCell>{expense.budgetName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 rounded-full">
-                          {expense.department}
-                        </Badge>
-                      </TableCell>
                       <TableCell>{expense.date}</TableCell>
-                      <TableCell className="text-right font-medium">{expense.amount.toLocaleString("id-ID")}</TableCell>
+                      <TableCell className="text-right font-medium">{formatRupiah(expense.amount)}</TableCell>
                       <TableCell>
                         <Badge
                           className="rounded-full"
@@ -686,14 +700,6 @@ export default function Pengeluaran() {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Departemen</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedExpense.department}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
                         <CardTitle className="text-sm">Tanggal</CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -705,7 +711,7 @@ export default function Pengeluaran() {
                         <CardTitle className="text-sm">Jumlah</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-lg font-medium">Rp {selectedExpense.amount.toLocaleString("id-ID")}</p>
+                        <p className="text-lg font-medium">{formatRupiah(selectedExpense.amount)}</p>
                       </CardContent>
                     </Card>
                     <Card>
@@ -805,9 +811,7 @@ export default function Pengeluaran() {
                           </div>
                           <div>
                             <h4 className="text-sm font-medium text-muted-foreground">Jumlah Alokasi Tambahan</h4>
-                            <p className="font-medium">
-                              Rp {selectedExpense.additionalAllocation.amount.toLocaleString("id-ID")}
-                            </p>
+                            <p className="font-medium">{formatRupiah(selectedExpense.additionalAllocation.amount)}</p>
                           </div>
                           <div>
                             <h4 className="text-sm font-medium text-muted-foreground">Status Alokasi</h4>

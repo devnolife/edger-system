@@ -2,7 +2,19 @@ import { neon } from "@neondatabase/serverless"
 import { drizzle } from "drizzle-orm/neon-http"
 
 // Initialize the SQL client with the DATABASE_URL environment variable
-export const sql = neon(process.env.DATABASE_URL!)
+// Add connection pooling configuration
+export const sql = neon(process.env.DATABASE_URL!, {
+  fetchOptions: {
+    cache: "no-store",
+  },
+  // Add exponential backoff for retries
+  retryOptions: {
+    retries: 3,
+    factor: 2,
+    minTimeout: 1000,
+    maxTimeout: 5000,
+  },
+})
 
 // Initialize the Drizzle ORM instance
 export const db = drizzle(sql)

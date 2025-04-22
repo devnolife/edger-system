@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
 import {
   BarChart3,
@@ -10,7 +11,6 @@ import {
   ListChecks,
   Settings,
   Users,
-  Sparkles,
   DollarSign,
   PlusCircle,
   CreditCard,
@@ -89,15 +89,15 @@ export function Sidebar() {
   ]
 
   return (
-    <div className="hidden gradient-sidebar lg:block lg:w-64 rounded-r-3xl">
+    <div className="hidden gradient-sidebar lg:fixed lg:top-0 lg:left-0 lg:h-screen lg:block lg:w-64 rounded-r-3xl z-30">
       <div className="flex h-full max-h-screen flex-col gap-2">
-        <div className="flex h-14 items-center px-4 pt-6">
-          <Link href="/" className="flex items-center gap-2 font-display text-white text-xl font-bold">
-            <Sparkles className="h-6 w-6" />
-            <span>SisKeu</span>
+        <div className="flex h-16 items-center px-4 pt-4">
+          <Link href="/" className="flex items-center gap-2">
+            <Image src="/images/unismuh-logo.png" alt="Universitas Muhammadiyah Makassar" width={40} height={40} />
+            <span className="font-display text-white text-lg font-bold">SiKePro UNISMUH</span>
           </Link>
         </div>
-        <ScrollArea className="flex-1 px-2 py-6">
+        <ScrollArea className="flex-1 px-2 py-4">
           <div className="space-y-2 px-2">
             {routes
               .filter((route) => route.roles.includes(role))
