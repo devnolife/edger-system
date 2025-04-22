@@ -40,6 +40,8 @@ import {
 } from "@/app/actions/allocation-actions"
 import { getBudgets } from "@/app/actions/budget-actions"
 import { getExpenseById } from "@/app/actions/expense-actions"
+import { LoadingButton } from "@/components/ui/loading-button"
+import { LoadingOverlay } from "@/components/ui/loading-overlay"
 
 export default function AnggaranTambahan() {
   const { role, user } = useUserRole()
@@ -50,7 +52,6 @@ export default function AnggaranTambahan() {
 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [departmentFilter, setDepartmentFilter] = useState("all")
   const [requestDate, setRequestDate] = useState<Date>()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
@@ -76,6 +77,11 @@ export default function AnggaranTambahan() {
     amount: number
     budgetId: string
   } | null>(null)
+
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
+  const [isRejecting, setIsRejecting] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   // Fetch allocations, budgets, and summary on component mount
   useEffect(() => {
@@ -151,11 +157,9 @@ export default function AnggaranTambahan() {
 
     const matchesStatus = statusFilter === "all" || allocation.status === statusFilter
 
-    const matchesDepartment = departmentFilter === "all" || allocation.department === departmentFilter
-
     const matchesBudget = !budgetIdParam || allocation.originalBudgetId === budgetIdParam
 
-    return matchesTab && matchesSearch && matchesStatus && matchesDepartment && matchesBudget
+    return matchesTab && matchesSearch && matchesStatus && matchesBudget
   })
 
   // Handle allocation creation
@@ -168,6 +172,9 @@ export default function AnggaranTambahan() {
       })
       return
     }
+
+    setIsSubmitting(true)
+    setIsProcessing(true)
 
     const formData = new FormData()
     formData.append("originalBudgetId", originalBudgetId)
@@ -223,6 +230,9 @@ export default function AnggaranTambahan() {
         description: "An unexpected error occurred",
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
+      setIsProcessing(false)
     }
   }
 
@@ -253,6 +263,13 @@ export default function AnggaranTambahan() {
   // Handle allocation approval or rejection
   const handleUpdateStatus = async (id: string, status: AllocationStatus) => {
     try {
+      if (status === "approved") {
+        setIsApproving(true)
+      } else {
+        setIsRejecting(true)
+      }
+      setIsProcessing(true)
+
       const result = await updateAllocationStatus(id, status, user?.name || "Unknown User")
       if (result.success) {
         toast({
@@ -288,6 +305,10 @@ export default function AnggaranTambahan() {
         description: "An unexpected error occurred",
         variant: "destructive",
       })
+    } finally {
+      setIsApproving(false)
+      setIsRejecting(false)
+      setIsProcessing(false)
     }
   }
 
@@ -421,9 +442,14 @@ export default function AnggaranTambahan() {
               <Button variant="outline" className="rounded-full" onClick={() => setIsDialogOpen(false)}>
                 Batal
               </Button>
-              <Button className="rounded-full animated-gradient-button text-white" onClick={handleCreateAllocation}>
+              <LoadingButton
+                className="rounded-full animated-gradient-button text-white"
+                onClick={handleCreateAllocation}
+                isLoading={isSubmitting}
+                loadingText="Menyimpan..."
+              >
                 Simpan Alokasi
-              </Button>
+              </LoadingButton>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -450,19 +476,6 @@ export default function AnggaranTambahan() {
             <SelectItem value="pending">Tertunda</SelectItem>
             <SelectItem value="approved">Disetujui</SelectItem>
             <SelectItem value="rejected">Ditolak</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-          <SelectTrigger className="w-full md:w-[180px] rounded-full border-primary/20">
-            <SelectValue placeholder="Departemen" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="all">Semua Departemen</SelectItem>
-            <SelectItem value="Operasional">Operasional</SelectItem>
-            <SelectItem value="Pemasaran">Pemasaran</SelectItem>
-            <SelectItem value="IT">IT</SelectItem>
-            <SelectItem value="SDM">SDM</SelectItem>
-            <SelectItem value="Keuangan">Keuangan</SelectItem>
           </SelectContent>
         </Select>
       </motion.div>
@@ -543,7 +556,6 @@ export default function AnggaranTambahan() {
                   <TableHead className="font-display">ID</TableHead>
                   <TableHead className="font-display">Deskripsi</TableHead>
                   <TableHead className="font-display">Anggaran Asal</TableHead>
-                  <TableHead className="font-display">Departemen</TableHead>
                   <TableHead className="font-display">Tanggal</TableHead>
                   <TableHead className="text-right font-display">Jumlah</TableHead>
                   <TableHead className="font-display">Status</TableHead>
@@ -583,11 +595,6 @@ export default function AnggaranTambahan() {
                       <TableCell className="font-medium">{allocation.id}</TableCell>
                       <TableCell>{allocation.description}</TableCell>
                       <TableCell>{allocation.originalBudgetName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 rounded-full">
-                          {allocation.department}
-                        </Badge>
-                      </TableCell>
                       <TableCell>{allocation.requestDate}</TableCell>
                       <TableCell className="text-right font-medium">{formatRupiah(allocation.amount)}</TableCell>
                       <TableCell>
@@ -620,22 +627,26 @@ export default function AnggaranTambahan() {
                           </Button>
                           {canManageAllocations && allocation.status === "pending" && (
                             <>
-                              <Button
+                              <LoadingButton
                                 variant="ghost"
                                 size="icon"
                                 className="rounded-full h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-50"
                                 onClick={() => handleUpdateStatus(allocation.id, "approved")}
+                                isLoading={isApproving}
+                                loadingText="Menyetujui..."
                               >
                                 <Check className="h-4 w-4" />
-                              </Button>
-                              <Button
+                              </LoadingButton>
+                              <LoadingButton
                                 variant="ghost"
                                 size="icon"
                                 className="rounded-full h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
                                 onClick={() => handleUpdateStatus(allocation.id, "rejected")}
+                                isLoading={isRejecting}
+                                loadingText="Menolak..."
                               >
                                 <X className="h-4 w-4" />
-                              </Button>
+                              </LoadingButton>
                             </>
                           )}
                         </div>
@@ -692,14 +703,6 @@ export default function AnggaranTambahan() {
                       <CardContent>
                         <p className="text-lg font-medium">{selectedAllocation.originalBudgetName}</p>
                         <p className="text-xs text-muted-foreground">{selectedAllocation.originalBudgetId}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Departemen</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedAllocation.department}</p>
                       </CardContent>
                     </Card>
                     <Card>
@@ -784,21 +787,25 @@ export default function AnggaranTambahan() {
 
                   {canManageAllocations && selectedAllocation.status === "pending" && (
                     <div className="flex justify-end gap-4 mt-4">
-                      <Button
+                      <LoadingButton
                         variant="outline"
                         className="rounded-full border-red-500 text-red-500 hover:bg-red-50"
                         onClick={() => handleUpdateStatus(selectedAllocation.id, "rejected")}
+                        isLoading={isRejecting}
+                        loadingText="Menolak..."
                       >
                         <X className="mr-2 h-4 w-4" />
                         Tolak Alokasi
-                      </Button>
-                      <Button
+                      </LoadingButton>
+                      <LoadingButton
                         className="rounded-full bg-green-600 hover:bg-green-700 text-white"
                         onClick={() => handleUpdateStatus(selectedAllocation.id, "approved")}
+                        isLoading={isApproving}
+                        loadingText="Menyetujui..."
                       >
                         <Check className="mr-2 h-4 w-4" />
                         Setujui Alokasi
-                      </Button>
+                      </LoadingButton>
                     </div>
                   )}
                 </TabsContent>
@@ -864,6 +871,8 @@ export default function AnggaranTambahan() {
           )}
         </DialogContent>
       </Dialog>
+      {/* Add the loading overlay */}
+      <LoadingOverlay isLoading={isProcessing} text="Memproses permintaan..." />
     </motion.div>
   )
 }

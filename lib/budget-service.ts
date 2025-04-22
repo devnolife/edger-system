@@ -1,5 +1,4 @@
 // Budget and expense types
-export type BudgetStatus = "active" | "completed" | "draft"
 export type ExpenseStatus = "pending" | "approved" | "rejected"
 export type AllocationStatus = "pending" | "approved" | "rejected"
 
@@ -10,7 +9,6 @@ export interface Budget {
   amount: number
   startDate: string
   endDate: string
-  status: BudgetStatus
   description?: string
   createdBy: string
   createdAt: string
@@ -139,7 +137,6 @@ export class BudgetService {
       amount: 100000,
       startDate: "2023-01-01",
       endDate: "2023-12-31",
-      status: "active",
       createdBy: "Admin User",
       createdAt: "2023-01-01T00:00:00Z",
       availableAmount: 60000, // Mock value

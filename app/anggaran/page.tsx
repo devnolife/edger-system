@@ -1,5 +1,13 @@
 "use client"
 
+import { TabsContent } from "@/components/ui/tabs"
+
+import { TabsTrigger } from "@/components/ui/tabs"
+
+import { TabsList } from "@/components/ui/tabs"
+
+import { Tabs } from "@/components/ui/tabs"
+
 import { Separator } from "@/components/ui/separator"
 
 import { useState, useEffect } from "react"
@@ -7,9 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -24,7 +30,6 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { formatRupiah } from "@/lib/format-rupiah"
 import { CalendarIcon, Edit, Eye, Plus, Search, Trash } from "lucide-react"
@@ -33,15 +38,21 @@ import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
 import { getBudgets, createBudget, getBudgetById, getBudgetSummary, type Budget } from "@/app/actions/budget-actions"
 import { useToast } from "@/hooks/use-toast"
+import { LoadingButton } from "@/components/ui/loading-button"
+import { useSearchParams } from "next/navigation"
+// First, import the budget update hook near the other imports
+import { useBudgetUpdates } from "@/hooks/use-budget-updates"
+// Import the BudgetUpdateIndicator component at the top of the file
+import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
   const { toast } = useToast()
+  const searchParams = useSearchParams()
+  const budgetIdParam = searchParams.get("budgetId")
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
   const [creationDate, setCreationDate] = useState<Date>(new Date())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState("active")
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -53,13 +64,77 @@ export default function Anggaran() {
     totalAvailable: 0,
   })
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
+  // First, let's add a refresh state variable near the other state variables
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
 
   // Form state
   const [budgetName, setBudgetName] = useState("")
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Fetch budgets and summary on component mount
+  // Then, add the hook usage after the other state variables
+  // Add this after the other state variables
+  const { lastUpdate } = useBudgetUpdates((event) => {
+    // Trigger a refresh when a budget update is received
+    setRefreshTrigger((prev) => prev + 1)
+
+    // If the updated budget is the currently selected budget, show a visual indicator
+    if (selectedBudget && event.budgetId === selectedBudget.id) {
+      // Update the selected budget with the new expense
+      setSelectedBudget((prev) => {
+        if (!prev) return null
+        return {
+          ...prev,
+          spentAmount: prev.spentAmount + event.expenseAmount,
+          availableAmount: prev.availableAmount - event.expenseAmount,
+        }
+      })
+    }
+  })
+
+  // Add a function to refresh budget data after the other state variables
+  const refreshBudgetData = async () => {
+    setIsLoading(true)
+    try {
+      // Fetch budgets
+      const budgetsResult = await getBudgets()
+      if (budgetsResult.success) {
+        setBudgets(budgetsResult.budgets)
+      } else {
+        toast({
+          title: "Error",
+          description: budgetsResult.error || "Failed to fetch budgets",
+          variant: "destructive",
+        })
+      }
+
+      // Fetch summary
+      const summaryResult = await getBudgetSummary()
+      if (summaryResult.success) {
+        setSummary(summaryResult.summary)
+      }
+
+      // If there's a selected budget, refresh its details
+      if (selectedBudget) {
+        const budgetResult = await getBudgetById(selectedBudget.id)
+        if (budgetResult.success) {
+          setSelectedBudget(budgetResult.budget)
+        }
+      }
+    } catch (error) {
+      console.error("Error refreshing budget data:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while refreshing budget data",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Modify the useEffect to include refreshTrigger in the dependency array
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
@@ -94,22 +169,19 @@ export default function Anggaran() {
     }
 
     fetchData()
-  }, [toast])
+  }, [toast, budgetIdParam, refreshTrigger]) // Add refreshTrigger to the dependency array
 
-  // Filter budgets based on tab, search, and status
+  // Filter budgets based on search
   const filteredBudgets = budgets.filter((budget) => {
-    const matchesTab =
-      (activeTab === "active" && budget.status === "active") ||
-      (activeTab === "completed" && budget.status === "completed") ||
-      (activeTab === "draft" && budget.status === "draft") ||
-      activeTab === "all"
-
     const matchesSearch = budget.name.toLowerCase().includes(searchTerm.toLowerCase()) || budget.id.includes(searchTerm)
-
-    const matchesStatus = statusFilter === "all" || budget.status === statusFilter
-
-    return matchesTab && matchesSearch && matchesStatus
+    return matchesSearch
   })
+
+  // Add a visual indicator for budget updates
+  // Add this after the filteredBudgets definition
+  const isBudgetRecentlyUpdated = (budgetId: string) => {
+    return lastUpdate && lastUpdate.budgetId === budgetId
+  }
 
   const canManageBudgets = role === "superadmin" || role === "admin"
 
@@ -124,11 +196,12 @@ export default function Anggaran() {
       return
     }
 
+    setIsSubmitting(true)
+
     const formData = new FormData()
     formData.append("name", budgetName)
     formData.append("amount", amount)
     formData.append("creationDate", creationDate.toISOString().split("T")[0])
-    formData.append("status", "draft")
     formData.append("description", description)
     formData.append("createdBy", user?.name || "Unknown User")
 
@@ -166,6 +239,8 @@ export default function Anggaran() {
         description: "An unexpected error occurred",
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -292,16 +367,21 @@ export default function Anggaran() {
                 <Button variant="outline" className="rounded-full" onClick={() => setIsDialogOpen(false)}>
                   Batal
                 </Button>
-                <Button className="rounded-full animated-gradient-button text-white" onClick={handleCreateBudget}>
+                <LoadingButton
+                  className="rounded-full animated-gradient-button text-white"
+                  onClick={handleCreateBudget}
+                  isLoading={isSubmitting}
+                  loadingText="Menyimpan..."
+                >
                   Simpan Anggaran
-                </Button>
+                </LoadingButton>
               </DialogFooter>
             </DialogContent>
           </Dialog>
         )}
       </motion.div>
 
-      {/* Search and filter section */}
+      {/* Search section */}
       <motion.div variants={item} className="flex flex-col gap-4 md:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -313,17 +393,6 @@ export default function Anggaran() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full md:w-[180px] rounded-full border-primary/20">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="all">Semua Status</SelectItem>
-            <SelectItem value="active">Aktif</SelectItem>
-            <SelectItem value="completed">Selesai</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-          </SelectContent>
-        </Select>
       </motion.div>
 
       {/* Summary cards */}
@@ -332,7 +401,7 @@ export default function Anggaran() {
           <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
             <div className="gradient-bg-1 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Anggaran Aktif</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Anggaran</CardTitle>
                 <div className="text-2xl font-bold">{formatRupiah(summary.totalBudget)}</div>
               </CardContent>
             </div>
@@ -370,38 +439,6 @@ export default function Anggaran() {
         </motion.div>
       </motion.div>
 
-      {/* Budget Tabs */}
-      <motion.div variants={item}>
-        <Tabs defaultValue="active" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 md:w-auto md:inline-flex md:grid-cols-none rounded-full p-1 bg-muted/50 backdrop-blur-sm">
-            <TabsTrigger
-              value="active"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Aktif
-            </TabsTrigger>
-            <TabsTrigger
-              value="completed"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Selesai
-            </TabsTrigger>
-            <TabsTrigger
-              value="draft"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Draft
-            </TabsTrigger>
-            <TabsTrigger
-              value="all"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Semua
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </motion.div>
-
       {/* Budget Table */}
       <motion.div variants={item}>
         <Card className="rounded-2xl border-none shadow-lg overflow-hidden">
@@ -415,7 +452,6 @@ export default function Anggaran() {
                   <TableHead className="text-right font-display">Jumlah (Rp)</TableHead>
                   <TableHead className="font-display">Penggunaan</TableHead>
                   <TableHead className="text-right font-display">Sisa (Rp)</TableHead>
-                  <TableHead className="font-display">Status</TableHead>
                   <TableHead className="text-right font-display">Tindakan</TableHead>
                 </TableRow>
               </TableHeader>
@@ -426,7 +462,7 @@ export default function Anggaran() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <div className="flex justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -435,7 +471,7 @@ export default function Anggaran() {
                   </TableRow>
                 ) : filteredBudgets.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <p className="text-muted-foreground">Tidak ada data anggaran yang ditemukan</p>
                     </TableCell>
                   </TableRow>
@@ -451,14 +487,24 @@ export default function Anggaran() {
                     return (
                       <motion.tr
                         key={budget.id}
-                        className="hover:bg-primary/5 transition-colors"
+                        className={cn(
+                          "hover:bg-primary/5 transition-colors",
+                          isBudgetRecentlyUpdated(budget.id) ? "bg-green-50 dark:bg-green-900/20" : "",
+                        )}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.03 }}
                         whileHover={{ scale: 1.01 }}
                       >
                         <TableCell className="font-medium">{budget.id}</TableCell>
-                        <TableCell>{budget.name}</TableCell>
+                        <TableCell>
+                          {budget.name}
+                          {isBudgetRecentlyUpdated(budget.id) && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                              Baru diperbarui
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>{budget.startDate}</TableCell>
                         <TableCell className="text-right font-medium">{formatRupiah(budget.amount)}</TableCell>
                         <TableCell className="w-40">
@@ -470,20 +516,11 @@ export default function Anggaran() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium">{formatRupiah(budget.availableAmount)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            className="rounded-full"
-                            variant={
-                              budget.status === "active"
-                                ? "default"
-                                : budget.status === "completed"
-                                  ? "outline"
-                                  : "secondary"
-                            }
-                          >
-                            {budget.status === "active" ? "Aktif" : budget.status === "completed" ? "Selesai" : "Draft"}
-                          </Badge>
+                        <TableCell className="text-right font-medium">
+                          {formatRupiah(budget.availableAmount)}
+                          {isBudgetRecentlyUpdated(budget.id) && (
+                            <div className="text-xs text-green-600 font-normal">Baru diperbarui</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -582,29 +619,6 @@ export default function Anggaran() {
                           <p className="text-lg font-medium">{selectedBudget.createdBy}</p>
                         </CardContent>
                       </Card>
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">Status</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Badge
-                            className="rounded-full"
-                            variant={
-                              selectedBudget.status === "active"
-                                ? "default"
-                                : selectedBudget.status === "completed"
-                                  ? "outline"
-                                  : "secondary"
-                            }
-                          >
-                            {selectedBudget.status === "active"
-                              ? "Aktif"
-                              : selectedBudget.status === "completed"
-                                ? "Selesai"
-                                : "Draft"}
-                          </Badge>
-                        </CardContent>
-                      </Card>
                     </div>
 
                     <Card>
@@ -619,7 +633,15 @@ export default function Anggaran() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Total Terpakai:</span>
-                            <span className="font-medium">{formatRupiah(selectedBudget.spentAmount)}</span>
+                            <div className="text-right">
+                              <span className="font-medium">{formatRupiah(selectedBudget.spentAmount)}</span>
+                              <BudgetUpdateIndicator
+                                budgetId={selectedBudget.id}
+                                lastUpdateBudgetId={lastUpdate?.budgetId}
+                                expenseAmount={lastUpdate?.expenseAmount || 0}
+                                className="mt-1"
+                              />
+                            </div>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Alokasi Tambahan:</span>
@@ -628,7 +650,12 @@ export default function Anggaran() {
                           <Separator className="my-2" />
                           <div className="flex justify-between font-bold">
                             <span>Sisa Anggaran:</span>
-                            <span>{formatRupiah(selectedBudget.availableAmount)}</span>
+                            <div className="text-right">
+                              <span>{formatRupiah(selectedBudget.availableAmount)}</span>
+                              {lastUpdate && lastUpdate.budgetId === selectedBudget.id && (
+                                <div className="text-xs text-green-600 font-medium mt-1">Baru diperbarui</div>
+                              )}
+                            </div>
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-sm">

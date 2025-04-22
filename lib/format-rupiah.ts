@@ -5,7 +5,15 @@
  */
 export function formatRupiah(value: number | string): string {
   // Convert to number if it's a string
-  const numericValue = typeof value === "string" ? Number.parseFloat(value) : value
+  let numericValue: number
+
+  if (typeof value === "string") {
+    // Remove any non-numeric characters except decimal point
+    const cleanValue = value.replace(/[^\d.-]/g, "")
+    numericValue = Number.parseFloat(cleanValue)
+  } else {
+    numericValue = value
+  }
 
   // Handle NaN
   if (isNaN(numericValue)) {
@@ -27,6 +35,8 @@ export function formatRupiah(value: number | string): string {
  * @returns Number value
  */
 export function parseRupiah(value: string): number {
+  if (!value) return 0
+
   // Remove currency symbol, dots, and commas
   const numericString = value
     .replace(/[^\d,-]/g, "")

@@ -3,17 +3,20 @@
 import { sql, generateId, formatDateForSQL } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { getBudgetById } from "./budget-actions"
+// Add this import at the top of the file
+import { updateBudgetCalculations, trackBudgetUsage } from "@/lib/budget-update-service"
 
 // Define types
 export type ExpenseStatus = "pending" | "approved" | "rejected"
 
+// Update the Expense interface to remove the department field
 export interface Expense {
   id: string
   budgetId: string
   description: string
   amount: number
   date: string
-  department: string
   status: ExpenseStatus
   submittedBy: string
   submittedAt: string
@@ -23,18 +26,17 @@ export interface Expense {
   additionalAllocationId?: string
 }
 
-// Validation schema for expense creation
+// Update the validation schema to remove the department field
 const expenseSchema = z.object({
   budgetId: z.string().min(1, "Budget ID is required"),
   description: z.string().min(3, "Description must be at least 3 characters"),
   amount: z.number().positive("Amount must be positive"),
   date: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
-  department: z.string().min(1, "Department is required"),
   submittedBy: z.string().min(1, "Submitter is required"),
   notes: z.string().optional(),
 })
 
-// Create a new expense
+// Then modify the createExpense function to include the budget update
 export async function createExpense(formData: FormData) {
   try {
     // Extract and validate data
@@ -42,7 +44,6 @@ export async function createExpense(formData: FormData) {
     const description = formData.get("description") as string
     const amount = Number.parseFloat(formData.get("amount") as string)
     const date = formData.get("date") as string
-    const department = formData.get("department") as string
     const submittedBy = formData.get("submittedBy") as string
     const notes = (formData.get("notes") as string) || ""
 
@@ -52,7 +53,6 @@ export async function createExpense(formData: FormData) {
       description,
       amount,
       date,
-      department,
       submittedBy,
       notes,
     })
@@ -60,42 +60,14 @@ export async function createExpense(formData: FormData) {
     // Generate a unique ID
     const id = generateId("EXP")
 
-    // Check if the expense exceeds the available budget
-    const budgetResult = await sql<
-      {
-        id: string
-        amount: number
-        spent: number
-        additional: number
-      }[]
-    >`
-      WITH 
-        budget_spent AS (
-          SELECT COALESCE(SUM(amount), 0) as total 
-          FROM expenses 
-          WHERE budget_id = ${validatedData.budgetId} AND status = 'approved'
-        ),
-        budget_additional AS (
-          SELECT COALESCE(SUM(amount), 0) as total 
-          FROM additional_allocations 
-          WHERE original_budget_id = ${validatedData.budgetId} AND status = 'approved'
-        )
-      SELECT 
-        b.id, 
-        b.amount, 
-        (SELECT total FROM budget_spent) as spent,
-        (SELECT total FROM budget_additional) as additional
-      FROM budgets b
-      WHERE b.id = ${validatedData.budgetId}
-    `
-
-    if (budgetResult.length === 0) {
-      return { success: false, error: "Budget not found" }
+    // Get the current budget details to check available amount
+    const budgetResult = await getBudgetById(validatedData.budgetId)
+    if (!budgetResult.success) {
+      return { success: false, error: budgetResult.error || "Failed to fetch budget details" }
     }
 
-    const budget = budgetResult[0]
-    const availableAmount =
-      budget.amount + Number.parseFloat(budget.additional.toString()) - Number.parseFloat(budget.spent.toString())
+    const budget = budgetResult.budget
+    const availableAmount = Number(budget.availableAmount)
 
     let additionalAllocationId: string | null = null
     let needsAllocation = false
@@ -126,11 +98,11 @@ export async function createExpense(formData: FormData) {
       `
     }
 
-    // Insert expense into database
+    // Insert the expense record
     await sql`
       INSERT INTO expenses (
         id, budget_id, description, amount, date, 
-        department, status, submitted_by, notes,
+        status, submitted_by, notes,
         additional_allocation_id
       ) VALUES (
         ${id}, 
@@ -138,7 +110,6 @@ export async function createExpense(formData: FormData) {
         ${validatedData.description}, 
         ${validatedData.amount}, 
         ${formatDateForSQL(validatedData.date)}, 
-        ${validatedData.department}, 
         'pending', 
         ${validatedData.submittedBy}, 
         ${validatedData.notes},
@@ -146,20 +117,126 @@ export async function createExpense(formData: FormData) {
       )
     `
 
+    // Update budget calculations
+    await updateBudgetCalculations(validatedData.budgetId, validatedData.amount)
+
+    // Track budget usage for history (this won't cause errors now)
+    await trackBudgetUsage(validatedData.budgetId, validatedData.amount, id)
+
+    // Emit a budget update event for real-time UI updates
+    // This is a client-side function, so we can't call it directly from a server action
+    // Instead, we'll rely on the client to emit the event when it receives the response
+
     // Revalidate the expenses page to reflect the changes
     revalidatePath("/pengeluaran")
+    // Also revalidate the budget page to reflect the updated budget amounts
+    revalidatePath("/anggaran")
 
     return {
       success: true,
       id,
       needsAllocation,
       additionalAllocationId,
+      budgetUpdated: true,
+      budgetId: validatedData.budgetId,
+      expenseAmount: validatedData.amount,
     }
   } catch (error) {
     console.error("Error creating expense:", error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unknown error occurred",
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
+    }
+  }
+}
+
+// Modify the updateExpenseStatus function
+export async function updateExpenseStatus(id: string, status: ExpenseStatus, approvedBy: string) {
+  try {
+    // Get the expense details first to know the budget and amount
+    const expenseResult = await sql<
+      {
+        id: string
+        budget_id: string
+        amount: number
+        additional_allocation_id: string | null
+      }[]
+    >`
+      SELECT id, budget_id, amount, additional_allocation_id
+      FROM expenses
+      WHERE id = ${id}
+    `
+
+    if (expenseResult.length === 0) {
+      return { success: false, error: "Expense not found" }
+    }
+
+    const expense = expenseResult[0]
+
+    // Update the expense status
+    await sql`
+      UPDATE expenses 
+      SET 
+        status = ${status}, 
+        approved_by = ${approvedBy}, 
+        approved_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id}
+    `
+
+    // If the expense is approved, update the budget's available amount
+    if (status === "approved") {
+      // Update budget calculations with the approved flag
+      await updateBudgetCalculations(expense.budget_id, Number(expense.amount), true)
+
+      // If there's an additional allocation request, approve it as well
+      if (expense.additional_allocation_id) {
+        await sql`
+          UPDATE additional_allocations
+          SET 
+            status = 'approved', 
+            approved_by = ${approvedBy}, 
+            approved_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${expense.additional_allocation_id}
+        `
+      }
+    }
+
+    // If the expense is rejected, also reject any associated additional allocation
+    if (status === "rejected") {
+      if (expense.additional_allocation_id) {
+        await sql`
+          UPDATE additional_allocations
+          SET 
+            status = 'rejected', 
+            approved_by = ${approvedBy}, 
+            approved_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${expense.additional_allocation_id}
+        `
+      }
+    }
+
+    // Revalidate the expenses page to reflect the changes
+    revalidatePath("/pengeluaran")
+    // Also revalidate the budget page to reflect the updated budget amounts
+    revalidatePath("/anggaran")
+    // Revalidate the additional allocations page if there was an allocation
+    if (expense.additional_allocation_id) {
+      revalidatePath("/anggaran-tambahan")
+    }
+
+    return {
+      success: true,
+      budgetId: expense.budget_id,
+      expenseAmount: Number(expense.amount),
+    }
+  } catch (error) {
+    console.error("Error updating expense status:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
     }
   }
 }
@@ -176,7 +253,6 @@ export async function getExpenses() {
         description: string
         amount: number
         date: string
-        department: string
         status: ExpenseStatus
         submitted_by: string
         submitted_at: string
@@ -203,7 +279,6 @@ export async function getExpenses() {
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
-        department: expense.department,
         status: expense.status,
         submittedBy: expense.submitted_by,
         submittedAt: expense.submitted_at,
@@ -234,7 +309,6 @@ export async function getExpenseById(id: string) {
         description: string
         amount: number
         date: string
-        department: string
         status: ExpenseStatus
         submitted_by: string
         submitted_at: string
@@ -293,7 +367,6 @@ export async function getExpenseById(id: string) {
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
-        department: expense.department,
         status: expense.status,
         submittedBy: expense.submitted_by,
         submittedAt: expense.submitted_at,
@@ -313,100 +386,106 @@ export async function getExpenseById(id: string) {
   }
 }
 
-// Approve or reject an expense
-export async function updateExpenseStatus(id: string, status: ExpenseStatus, approvedBy: string) {
-  try {
-    // Update the expense status
-    await sql`
-      UPDATE expenses 
-      SET 
-        status = ${status}, 
-        approved_by = ${approvedBy}, 
-        approved_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
-    `
+// Get expense summary (total, approved, pending)
+export async function getExpenseSummary() {
+  // Implement retry logic with exponential backoff
+  const maxRetries = 3
+  let retryCount = 0
+  let lastError: any = null
 
-    // If the expense has an additional allocation and the expense is approved,
-    // also approve the additional allocation
-    if (status === "approved") {
-      await sql`
-        UPDATE additional_allocations
-        SET 
-          status = 'approved', 
-          approved_by = ${approvedBy}, 
-          approved_at = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE related_expense_id = ${id}
+  while (retryCount < maxRetries) {
+    try {
+      // Get total expense amount
+      const totalResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total FROM expenses
       `
-    }
+      const total = Number.parseFloat(totalResult[0]?.total || "0")
 
-    // If the expense is rejected, also reject any associated additional allocation
-    if (status === "rejected") {
-      await sql`
-        UPDATE additional_allocations
-        SET 
-          status = 'rejected', 
-          approved_by = ${approvedBy}, 
-          approved_at = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE related_expense_id = ${id}
+      // Get approved expense amount
+      const approvedResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'approved'
       `
-    }
+      const approved = Number.parseFloat(approvedResult[0]?.total || "0")
 
-    // Revalidate the expenses page to reflect the changes
-    revalidatePath("/pengeluaran")
+      // Get pending expense amount
+      const pendingResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'pending'
+      `
+      const pending = Number.parseFloat(pendingResult[0]?.total || "0")
 
-    return { success: true }
-  } catch (error) {
-    console.error("Error updating expense status:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "An unknown error occurred",
+      // Get expenses with additional allocations
+      const withAllocationResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM expenses 
+        WHERE additional_allocation_id IS NOT NULL
+      `
+      const withAllocation = Number.parseFloat(withAllocationResult[0]?.total || "0")
+
+      return {
+        success: true,
+        summary: {
+          total,
+          approved,
+          pending,
+          withAllocation,
+        },
+      }
+    } catch (error) {
+      lastError = error
+
+      // Check if it's a rate limit error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes("Too Many")) {
+        console.log(`Rate limit hit, retrying (${retryCount + 1}/${maxRetries})...`)
+        // Exponential backoff: wait longer between each retry
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, retryCount) * 1000))
+        retryCount++
+      } else {
+        // If it's not a rate limit error, don't retry
+        break
+      }
     }
+  }
+
+  console.error("Error fetching expense summary:", lastError)
+  return {
+    success: false,
+    error: lastError instanceof Error ? lastError.message : "An unknown error occurred",
   }
 }
 
-// Get expense summary (total, approved, pending)
-export async function getExpenseSummary() {
+// Get expenses by budget ID
+export async function getExpensesByBudgetId(budgetId: string) {
   try {
-    // Get total expense amount
-    const totalResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM expenses
+    const expenses = await sql<
+      {
+        id: string
+        description: string
+        amount: number
+        date: string
+        status: ExpenseStatus
+        submitted_by: string
+      }[]
+    >`
+      SELECT id, description, amount, date, status, submitted_by
+      FROM expenses
+      WHERE budget_id = ${budgetId}
+      ORDER BY date DESC
     `
-    const total = Number.parseFloat(totalResult[0]?.total || "0")
-
-    // Get approved expense amount
-    const approvedResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'approved'
-    `
-    const approved = Number.parseFloat(approvedResult[0]?.total || "0")
-
-    // Get pending expense amount
-    const pendingResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'pending'
-    `
-    const pending = Number.parseFloat(pendingResult[0]?.total || "0")
-
-    // Get expenses with additional allocations
-    const withAllocationResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE additional_allocation_id IS NOT NULL
-    `
-    const withAllocation = Number.parseFloat(withAllocationResult[0]?.total || "0")
 
     return {
       success: true,
-      summary: {
-        total,
-        approved,
-        pending,
-        withAllocation,
-      },
+      expenses: expenses.map((expense) => ({
+        id: expense.id,
+        description: expense.description,
+        amount: expense.amount,
+        date: expense.date,
+        status: expense.status,
+        submittedBy: expense.submitted_by,
+      })),
     }
   } catch (error) {
-    console.error("Error fetching expense summary:", error)
+    console.error("Error fetching expenses by budget ID:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",

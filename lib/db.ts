@@ -36,3 +36,32 @@ export function generateId(prefix: string): string {
     .padStart(3, "0")
   return `${prefix}-${year}-${random}`
 }
+
+// Add this function to your existing db.ts file
+export async function executeQueryWithRetry<T>(queryFn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let retryCount = 0
+  let lastError: any = null
+
+  while (retryCount < maxRetries) {
+    try {
+      return await queryFn()
+    } catch (error) {
+      lastError = error
+
+      // Check if it's a rate limit error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes("Too Many")) {
+        console.log(`Rate limit hit, retrying (${retryCount + 1}/${maxRetries})...`)
+        // Exponential backoff: wait longer between each retry
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, retryCount) * 1000))
+        retryCount++
+      } else {
+        // If it's not a rate limit error, don't retry
+        throw error
+      }
+    }
+  }
+
+  // If we've exhausted all retries, throw the last error
+  throw lastError
+}

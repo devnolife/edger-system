@@ -4,40 +4,36 @@ import { sql, generateId, formatDateForSQL } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-// Define types
-export type BudgetStatus = "active" | "completed" | "draft"
-
+// Define types - removed BudgetStatus type since it's no longer needed
 export interface Budget {
   id: string
   name: string
   amount: number
   startDate: string
-  status: BudgetStatus
   description?: string
   createdBy: string
   createdAt: string
   availableAmount: number // Calculated field
   spentAmount: number // Calculated field
+  additionalAmount?: number // Optional calculated field
 }
 
-// Validation schema for budget creation
+// Validation schema for budget creation - removed status field
 const budgetSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
   amount: z.number().positive("Amount must be positive"),
   creationDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid creation date"),
-  status: z.enum(["active", "completed", "draft"]),
   description: z.string().optional(),
   createdBy: z.string().min(1, "Creator is required"),
 })
 
-// Create a new budget
+// Create a new budget - removed status parameter
 export async function createBudget(formData: FormData) {
   try {
     // Extract and validate data
     const name = formData.get("name") as string
     const amount = Number.parseFloat(formData.get("amount") as string)
     const creationDate = formData.get("creationDate") as string
-    const status = (formData.get("status") as BudgetStatus) || "draft"
     const description = (formData.get("description") as string) || ""
     const createdBy = formData.get("createdBy") as string
 
@@ -46,7 +42,6 @@ export async function createBudget(formData: FormData) {
       name,
       amount,
       creationDate,
-      status,
       description,
       createdBy,
     })
@@ -54,15 +49,15 @@ export async function createBudget(formData: FormData) {
     // Generate a unique ID
     const id = generateId("BDG")
 
-    // Insert into database
+    // Insert into database - removed status field
     await sql`
       INSERT INTO budgets (
         id, name, amount, start_date, 
-        status, description, created_by
+        description, created_by
       ) VALUES (
         ${id}, ${validatedData.name}, ${validatedData.amount}, 
         ${formatDateForSQL(validatedData.creationDate)}, 
-        ${validatedData.status}, ${validatedData.description}, ${validatedData.createdBy}
+        ${validatedData.description}, ${validatedData.createdBy}
       )
     `
 
@@ -79,7 +74,7 @@ export async function createBudget(formData: FormData) {
   }
 }
 
-// Get all budgets with calculated fields
+// Get all budgets with calculated fields - removed status filtering
 export async function getBudgets() {
   try {
     // Get all budgets
@@ -89,7 +84,6 @@ export async function getBudgets() {
         name: string
         amount: number
         start_date: string
-        status: BudgetStatus
         description: string | null
         created_by: string
         created_at: string
@@ -125,12 +119,12 @@ export async function getBudgets() {
           name: budget.name,
           amount: budget.amount,
           startDate: budget.start_date,
-          status: budget.status,
           description: budget.description || undefined,
           createdBy: budget.created_by,
           createdAt: budget.created_at,
           spentAmount,
           availableAmount,
+          additionalAmount,
         }
       }),
     )
@@ -145,7 +139,7 @@ export async function getBudgets() {
   }
 }
 
-// Get a single budget by ID with calculated fields
+// Get a single budget by ID with calculated fields - removed status references
 export async function getBudgetById(id: string) {
   // Implement retry logic with exponential backoff
   const maxRetries = 3
@@ -161,7 +155,6 @@ export async function getBudgetById(id: string) {
           name: string
           amount: number
           start_date: string
-          status: BudgetStatus
           description: string | null
           created_by: string
           created_at: string
@@ -195,6 +188,14 @@ export async function getBudgetById(id: string) {
       // Calculate available amount
       const availableAmount = budget.amount + additionalAmount - spentAmount
 
+      // Calculate pending expenses
+      const pendingExpensesResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM expenses 
+        WHERE budget_id = ${budget.id} AND status = 'pending'
+      `
+      const pendingAmount = Number.parseFloat(pendingExpensesResult[0]?.total || "0")
+
       return {
         success: true,
         budget: {
@@ -202,13 +203,13 @@ export async function getBudgetById(id: string) {
           name: budget.name,
           amount: budget.amount,
           startDate: budget.start_date,
-          status: budget.status,
           description: budget.description || undefined,
           createdBy: budget.created_by,
           createdAt: budget.created_at,
           spentAmount,
           availableAmount,
           additionalAmount,
+          pendingAmount,
         },
       }
     } catch (error) {
@@ -235,13 +236,12 @@ export async function getBudgetById(id: string) {
   }
 }
 
-// Update a budget
+// Update a budget - removed status field
 export async function updateBudget(id: string, formData: FormData) {
   try {
     // Extract and validate data
     const name = formData.get("name") as string
     const amount = Number.parseFloat(formData.get("amount") as string)
-    const status = formData.get("status") as BudgetStatus
     const description = (formData.get("description") as string) || ""
 
     // Validate data
@@ -249,23 +249,20 @@ export async function updateBudget(id: string, formData: FormData) {
       .object({
         name: z.string().min(3, "Name must be at least 3 characters"),
         amount: z.number().positive("Amount must be positive"),
-        status: z.enum(["active", "completed", "draft"]),
         description: z.string().optional(),
       })
       .parse({
         name,
         amount,
-        status,
         description,
       })
 
-    // Update in database
+    // Update in database - removed status field
     await sql`
       UPDATE budgets 
       SET 
         name = ${validatedData.name}, 
         amount = ${validatedData.amount}, 
-        status = ${validatedData.status}, 
         description = ${validatedData.description},
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id}
@@ -284,7 +281,7 @@ export async function updateBudget(id: string, formData: FormData) {
   }
 }
 
-// Delete a budget
+// Delete a budget - no changes needed here
 export async function deleteBudget(id: string) {
   try {
     // Check if there are any expenses associated with this budget
@@ -327,32 +324,41 @@ export async function deleteBudget(id: string) {
   }
 }
 
-// Get budget summary (total, spent, available)
+// Get budget summary - removed status filtering
 export async function getBudgetSummary() {
   try {
-    // Get total budget amount
+    // Get total budget amount - removed status filter
     const totalBudgetResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM budgets WHERE status = 'active'
+      SELECT COALESCE(SUM(amount), 0) as total FROM budgets
     `
     const totalBudget = Number.parseFloat(totalBudgetResult[0]?.total || "0")
 
-    // Get total spent amount
+    // Get total spent amount - removed status filter
     const totalSpentResult = await sql<{ total: number }[]>`
       SELECT COALESCE(SUM(e.amount), 0) as total 
       FROM expenses e 
       JOIN budgets b ON e.budget_id = b.id 
-      WHERE e.status = 'approved' AND b.status = 'active'
+      WHERE e.status = 'approved'
     `
     const totalSpent = Number.parseFloat(totalSpentResult[0]?.total || "0")
 
-    // Get total additional allocations
+    // Get total additional allocations - removed status filter
     const totalAdditionalResult = await sql<{ total: number }[]>`
       SELECT COALESCE(SUM(a.amount), 0) as total 
       FROM additional_allocations a 
       JOIN budgets b ON a.original_budget_id = b.id 
-      WHERE a.status = 'approved' AND b.status = 'active'
+      WHERE a.status = 'approved'
     `
     const totalAdditional = Number.parseFloat(totalAdditionalResult[0]?.total || "0")
+
+    // Get total pending expenses - removed status filter
+    const totalPendingResult = await sql<{ total: number }[]>`
+      SELECT COALESCE(SUM(e.amount), 0) as total 
+      FROM expenses e 
+      JOIN budgets b ON e.budget_id = b.id 
+      WHERE e.status = 'pending'
+    `
+    const totalPending = Number.parseFloat(totalPendingResult[0]?.total || "0")
 
     // Calculate available amount
     const totalAvailable = totalBudget + totalAdditional - totalSpent
@@ -364,6 +370,7 @@ export async function getBudgetSummary() {
         totalSpent,
         totalAdditional,
         totalAvailable,
+        totalPending,
       },
     }
   } catch (error) {

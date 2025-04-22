@@ -110,7 +110,6 @@ export async function getAdditionalAllocations() {
         id: string
         original_budget_id: string
         budget_name: string
-        department: string
         description: string
         reason: string
         amount: number
@@ -125,8 +124,7 @@ export async function getAdditionalAllocations() {
     >`
       SELECT 
         a.*, 
-        b.name as budget_name,
-        b.department
+        b.name as budget_name
       FROM additional_allocations a
       JOIN budgets b ON a.original_budget_id = b.id
       ORDER BY a.requested_at DESC
@@ -150,7 +148,6 @@ export async function getAdditionalAllocations() {
           id: allocation.id,
           originalBudgetId: allocation.original_budget_id,
           originalBudgetName: allocation.budget_name,
-          department: allocation.department,
           description: allocation.description,
           reason: allocation.reason,
           amount: allocation.amount,
@@ -186,7 +183,6 @@ export async function getAdditionalAllocationById(id: string) {
         id: string
         original_budget_id: string
         budget_name: string
-        department: string
         description: string
         reason: string
         amount: number
@@ -201,8 +197,7 @@ export async function getAdditionalAllocationById(id: string) {
     >`
       SELECT 
         a.*, 
-        b.name as budget_name,
-        b.department
+        b.name as budget_name
       FROM additional_allocations a
       JOIN budgets b ON a.original_budget_id = b.id
       WHERE a.id = ${id}
@@ -257,7 +252,6 @@ export async function getAdditionalAllocationById(id: string) {
         id: allocation.id,
         originalBudgetId: allocation.original_budget_id,
         originalBudgetName: allocation.budget_name,
-        department: allocation.department,
         description: allocation.description,
         reason: allocation.reason,
         amount: allocation.amount,
