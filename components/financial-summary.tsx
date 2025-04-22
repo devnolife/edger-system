@@ -45,7 +45,7 @@ export function FinancialSummary() {
           }}
         />
         <Legend />
-        <Bar dataKey="pengeluaran" name="Pengeluaran" fill="#10b981" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="pengeluaran" name="Pengeluaran" fill="#3674B5" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

@@ -95,8 +95,8 @@ export default function Dashboard() {
                           +20,1% dari bulan lalu
                         </p>
                       </div>
-                      <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Wallet className="h-6 w-6 text-primary" />
+                      <div className="h-12 w-12 rounded-full bg-[#3674B5]/10 flex items-center justify-center">
+                        <Wallet className="h-6 w-6 text-[#3674B5]" />
                       </div>
                     </div>
                   </CardContent>
@@ -117,8 +117,8 @@ export default function Dashboard() {
                           +4,3% dari bulan lalu
                         </p>
                       </div>
-                      <div className="h-12 w-12 rounded-full bg-secondary/10 flex items-center justify-center">
-                        <CreditCard className="h-6 w-6 text-secondary" />
+                      <div className="h-12 w-12 rounded-full bg-[#578FCA]/10 flex items-center justify-center">
+                        <CreditCard className="h-6 w-6 text-[#578FCA]" />
                       </div>
                     </div>
                   </CardContent>
@@ -139,8 +139,8 @@ export default function Dashboard() {
                           +7,2% dari bulan lalu
                         </p>
                       </div>
-                      <div className="h-12 w-12 rounded-full bg-pink-500/10 flex items-center justify-center">
-                        <Activity className="h-6 w-6 text-pink-500" />
+                      <div className="h-12 w-12 rounded-full bg-[#A1E3F9]/10 flex items-center justify-center">
+                        <Activity className="h-6 w-6 text-[#A1E3F9]" />
                       </div>
                     </div>
                   </CardContent>
@@ -204,28 +204,28 @@ export default function Dashboard() {
                       <div className="space-y-2 bg-white dark:bg-black/40 p-4 rounded-xl">
                         <p className="text-sm font-medium">Status Database</p>
                         <div className="flex items-center">
-                          <div className="h-3 w-3 rounded-full bg-green-500 mr-2 pulse"></div>
+                          <div className="h-3 w-3 rounded-full bg-[#3674B5] mr-2 pulse"></div>
                           <p className="text-sm font-medium">Sehat</p>
                         </div>
                       </div>
                       <div className="space-y-2 bg-white dark:bg-black/40 p-4 rounded-xl">
                         <p className="text-sm font-medium">Status API</p>
                         <div className="flex items-center">
-                          <div className="h-3 w-3 rounded-full bg-green-500 mr-2 pulse"></div>
+                          <div className="h-3 w-3 rounded-full bg-[#3674B5] mr-2 pulse"></div>
                           <p className="text-sm font-medium">Operasional</p>
                         </div>
                       </div>
                       <div className="space-y-2 bg-white dark:bg-black/40 p-4 rounded-xl">
                         <p className="text-sm font-medium">Penyimpanan</p>
                         <div className="flex items-center">
-                          <div className="h-3 w-3 rounded-full bg-yellow-500 mr-2"></div>
+                          <div className="h-3 w-3 rounded-full bg-[#A1E3F9] mr-2"></div>
                           <p className="text-sm font-medium">78% Terpakai</p>
                         </div>
                       </div>
                       <div className="space-y-2 bg-white dark:bg-black/40 p-4 rounded-xl">
                         <p className="text-sm font-medium">Status Backup</p>
                         <div className="flex items-center">
-                          <div className="h-3 w-3 rounded-full bg-green-500 mr-2 pulse"></div>
+                          <div className="h-3 w-3 rounded-full bg-[#3674B5] mr-2 pulse"></div>
                           <p className="text-sm font-medium">Backup terakhir: 2 jam lalu</p>
                         </div>
                       </div>

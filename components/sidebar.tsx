@@ -2,7 +2,19 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, BookOpen, FileText, LayoutDashboard, ListChecks, Settings, Users, Sparkles } from "lucide-react"
+import {
+  BarChart3,
+  BookOpen,
+  FileText,
+  LayoutDashboard,
+  ListChecks,
+  Settings,
+  Users,
+  Sparkles,
+  DollarSign,
+  PlusCircle,
+  CreditCard,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -37,6 +49,24 @@ export function Sidebar() {
       icon: FileText,
       href: "/buku-besar",
       roles: ["superadmin", "admin"],
+    },
+    {
+      label: "Anggaran",
+      icon: DollarSign,
+      href: "/anggaran",
+      roles: ["superadmin", "admin", "operator"],
+    },
+    {
+      label: "Pengeluaran",
+      icon: CreditCard,
+      href: "/pengeluaran",
+      roles: ["superadmin", "admin", "operator"],
+    },
+    {
+      label: "Anggaran Tambahan",
+      icon: PlusCircle,
+      href: "/anggaran-tambahan",
+      roles: ["superadmin", "admin", "operator"],
     },
     {
       label: "Laporan",

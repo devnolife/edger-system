@@ -287,8 +287,8 @@ export default function Laporan() {
                             formatter={(value) => [`Rp${value.toLocaleString("id-ID")}`, ""]}
                           />
                           <Legend />
-                          <Bar dataKey="pengeluaran" name="Pengeluaran" fill="#10b981" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="anggaran" name="Anggaran" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="pengeluaran" name="Pengeluaran" fill="#3674B5" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="anggaran" name="Anggaran" fill="#578FCA" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -390,7 +390,7 @@ export default function Laporan() {
                       </div>
                       <div className="flex justify-between py-2 font-bold">
                         <span>Sisa Anggaran</span>
-                        <span className="text-green-600">Rp6.000.000</span>
+                        <span className="text-[#3674B5]">Rp6.000.000</span>
                       </div>
                     </div>
                   </div>
@@ -405,7 +405,7 @@ export default function Laporan() {
                             <span>Anggaran: Rp30.000.000</span>
                             <span>Realisasi: Rp28.500.000</span>
                           </div>
-                          <div className="text-xs text-green-600 mt-1">Sisa: Rp1.500.000 (5%)</div>
+                          <div className="text-xs text-[#3674B5] mt-1">Sisa: Rp1.500.000 (5%)</div>
                         </div>
                       </div>
                       <div className="flex justify-between py-2 border-b">
@@ -415,7 +415,7 @@ export default function Laporan() {
                             <span>Anggaran: Rp25.000.000</span>
                             <span>Realisasi: Rp25.000.000</span>
                           </div>
-                          <div className="text-xs text-yellow-600 mt-1">Sisa: Rp0 (0%)</div>
+                          <div className="text-xs text-[#A1E3F9] mt-1">Sisa: Rp0 (0%)</div>
                         </div>
                       </div>
                       <div className="flex justify-between py-2 border-b">
@@ -425,7 +425,7 @@ export default function Laporan() {
                             <span>Anggaran: Rp15.000.000</span>
                             <span>Realisasi: Rp12.500.000</span>
                           </div>
-                          <div className="text-xs text-green-600 mt-1">Sisa: Rp2.500.000 (16.7%)</div>
+                          <div className="text-xs text-[#3674B5] mt-1">Sisa: Rp2.500.000 (16.7%)</div>
                         </div>
                       </div>
                       <div className="flex justify-between py-2 border-b">
@@ -435,7 +435,7 @@ export default function Laporan() {
                             <span>Anggaran: Rp5.000.000</span>
                             <span>Realisasi: Rp3.000.000</span>
                           </div>
-                          <div className="text-xs text-green-600 mt-1">Sisa: Rp2.000.000 (40%)</div>
+                          <div className="text-xs text-[#3674B5] mt-1">Sisa: Rp2.000.000 (40%)</div>
                         </div>
                       </div>
                     </div>
@@ -459,8 +459,8 @@ export default function Laporan() {
                             formatter={(value) => [`Rp${value.toLocaleString("id-ID")}`, ""]}
                           />
                           <Legend />
-                          <Bar dataKey="pengeluaran" name="Realisasi" fill="#10b981" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="anggaran" name="Anggaran" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="pengeluaran" name="Realisasi" fill="#3674B5" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="anggaran" name="Anggaran" fill="#578FCA" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
