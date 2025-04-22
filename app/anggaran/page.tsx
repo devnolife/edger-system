@@ -2,7 +2,7 @@
 
 import { Separator } from "@/components/ui/separator"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -29,10 +29,12 @@ import { CalendarIcon, Edit, Eye, Plus, Search, Trash } from "lucide-react"
 import { format } from "date-fns"
 import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
-import { BudgetService, type Budget } from "@/lib/budget-service"
+import { getBudgets, createBudget, getBudgetById, getBudgetSummary, type Budget } from "@/app/actions/budget-actions"
+import { useToast } from "@/hooks/use-toast"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
+  const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [startDate, setStartDate] = useState<Date>()
@@ -41,6 +43,14 @@ export default function Anggaran() {
   const [activeTab, setActiveTab] = useState("active")
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [budgets, setBudgets] = useState<Budget[]>([])
+  const [summary, setSummary] = useState({
+    totalBudget: 0,
+    totalSpent: 0,
+    totalAdditional: 0,
+    totalAvailable: 0,
+  })
 
   // Form state
   const [budgetName, setBudgetName] = useState("")
@@ -48,138 +58,42 @@ export default function Anggaran() {
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
 
-  const budgets = [
-    {
-      id: "BDG-2023-001",
-      name: "Anggaran Operasional Q3 2023",
-      department: "Operasional",
-      amount: 75000000,
-      startDate: "2023-07-01",
-      endDate: "2023-09-30",
-      status: "active",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-06-15T10:30:00Z",
-      availableAmount: 45000000,
-      spentAmount: 30000000,
-    },
-    {
-      id: "BDG-2023-002",
-      name: "Anggaran Pemasaran Q3 2023",
-      department: "Pemasaran",
-      amount: 50000000,
-      startDate: "2023-07-01",
-      endDate: "2023-09-30",
-      status: "active",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-06-16T14:20:00Z",
-      availableAmount: 20000000,
-      spentAmount: 30000000,
-    },
-    {
-      id: "BDG-2023-003",
-      name: "Anggaran Pengembangan IT Q3 2023",
-      department: "IT",
-      amount: 100000000,
-      startDate: "2023-07-01",
-      endDate: "2023-09-30",
-      status: "active",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-06-18T09:45:00Z",
-      availableAmount: 60000000,
-      spentAmount: 40000000,
-    },
-    {
-      id: "BDG-2023-004",
-      name: "Anggaran SDM Q3 2023",
-      department: "SDM",
-      amount: 30000000,
-      startDate: "2023-07-01",
-      endDate: "2023-09-30",
-      status: "active",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-06-20T11:15:00Z",
-      availableAmount: 15000000,
-      spentAmount: 15000000,
-    },
-    {
-      id: "BDG-2023-005",
-      name: "Anggaran Operasional Q2 2023",
-      department: "Operasional",
-      amount: 70000000,
-      startDate: "2023-04-01",
-      endDate: "2023-06-30",
-      status: "completed",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-03-15T13:30:00Z",
-      availableAmount: 0,
-      spentAmount: 70000000,
-    },
-    {
-      id: "BDG-2023-006",
-      name: "Anggaran Pelatihan Q4 2023",
-      department: "SDM",
-      amount: 25000000,
-      startDate: "2023-10-01",
-      endDate: "2023-12-31",
-      status: "draft",
-      createdBy: "Admin Pengguna",
-      createdAt: "2023-08-25T10:00:00Z",
-      availableAmount: 25000000,
-      spentAmount: 0,
-    },
-  ]
+  // Fetch budgets and summary on component mount
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true)
+      try {
+        // Fetch budgets
+        const budgetsResult = await getBudgets()
+        if (budgetsResult.success) {
+          setBudgets(budgetsResult.budgets)
+        } else {
+          toast({
+            title: "Error",
+            description: budgetsResult.error || "Failed to fetch budgets",
+            variant: "destructive",
+          })
+        }
 
-  const recentExpenses = [
-    {
-      id: "EXP-2023-0012",
-      budgetId: "BDG-2023-001",
-      description: "Pemeliharaan Gedung",
-      amount: 5000000,
-      date: "2023-08-15",
-      status: "approved",
-    },
-    {
-      id: "EXP-2023-0011",
-      budgetId: "BDG-2023-002",
-      description: "Iklan Media Sosial",
-      amount: 7500000,
-      date: "2023-08-10",
-      status: "approved",
-    },
-    {
-      id: "EXP-2023-0010",
-      budgetId: "BDG-2023-003",
-      description: "Pembaruan Software",
-      amount: 12000000,
-      date: "2023-08-05",
-      status: "approved",
-    },
-  ]
+        // Fetch summary
+        const summaryResult = await getBudgetSummary()
+        if (summaryResult.success) {
+          setSummary(summaryResult.summary)
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        toast({
+          title: "Error",
+          description: "An unexpected error occurred",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-  const allocations = [
-    {
-      id: "ADD-2023-001",
-      originalBudgetId: "BDG-2023-002",
-      description: "Tambahan untuk kampanye Q3",
-      reason: "Tambahan biaya iklan untuk mencapai target Q3",
-      amount: 10000000,
-      requestDate: "2023-08-05",
-      status: "approved",
-      availableAmount: 4000000,
-      spentAmount: 6000000,
-    },
-    {
-      id: "ADD-2023-002",
-      originalBudgetId: "BDG-2023-003",
-      description: "Tambahan lisensi software baru",
-      reason: "Penyesuaian harga lisensi tahunan",
-      amount: 8000000,
-      requestDate: "2023-07-25",
-      status: "approved",
-      availableAmount: 2000000,
-      spentAmount: 6000000,
-    },
-  ]
+    fetchData()
+  }, [toast])
 
   // Filter budgets based on tab, search, and status
   const filteredBudgets = budgets.filter((budget) => {
@@ -202,43 +116,87 @@ export default function Anggaran() {
   const canManageBudgets = role === "superadmin" || role === "admin"
 
   // Handle budget creation
-  const handleCreateBudget = () => {
+  const handleCreateBudget = async () => {
     if (!budgetName || !department || !amount || !startDate || !endDate) {
-      // In a real app, show validation errors
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      })
       return
     }
 
-    const newBudget = {
-      id: BudgetService.generateId("BDG"),
-      name: budgetName,
-      department,
-      amount: Number.parseFloat(amount),
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0],
-      status: "draft",
-      createdBy: user?.name || "Unknown User",
-      createdAt: new Date().toISOString(),
-      availableAmount: Number.parseFloat(amount),
-      spentAmount: 0,
+    const formData = new FormData()
+    formData.append("name", budgetName)
+    formData.append("department", department)
+    formData.append("amount", amount)
+    formData.append("startDate", startDate.toISOString().split("T")[0])
+    formData.append("endDate", endDate.toISOString().split("T")[0])
+    formData.append("status", "draft")
+    formData.append("description", description)
+    formData.append("createdBy", user?.name || "Unknown User")
+
+    try {
+      const result = await createBudget(formData)
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Budget created successfully",
+        })
+
+        // Refresh budgets
+        const budgetsResult = await getBudgets()
+        if (budgetsResult.success) {
+          setBudgets(budgetsResult.budgets)
+        }
+
+        // Reset form and close dialog
+        setBudgetName("")
+        setDepartment("")
+        setAmount("")
+        setDescription("")
+        setStartDate(undefined)
+        setEndDate(undefined)
+        setIsDialogOpen(false)
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to create budget",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error creating budget:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      })
     }
-
-    // In a real app, save to database
-    console.log("New budget created:", newBudget)
-
-    // Reset form and close dialog
-    setBudgetName("")
-    setDepartment("")
-    setAmount("")
-    setDescription("")
-    setStartDate(undefined)
-    setEndDate(undefined)
-    setIsDialogOpen(false)
   }
 
   // Open budget details
-  const openBudgetDetails = (budget: Budget) => {
-    setSelectedBudget(budget)
-    setIsDetailsOpen(true)
+  const openBudgetDetails = async (budget: Budget) => {
+    try {
+      const result = await getBudgetById(budget.id)
+      if (result.success) {
+        setSelectedBudget(result.budget)
+        setIsDetailsOpen(true)
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to fetch budget details",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error fetching budget details:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      })
+    }
   }
 
   const container = {
@@ -300,11 +258,11 @@ export default function Anggaran() {
                         <SelectValue placeholder="Pilih departemen" />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
-                        <SelectItem value="operasional">Operasional</SelectItem>
-                        <SelectItem value="pemasaran">Pemasaran</SelectItem>
-                        <SelectItem value="it">IT</SelectItem>
-                        <SelectItem value="sdm">SDM</SelectItem>
-                        <SelectItem value="keuangan">Keuangan</SelectItem>
+                        <SelectItem value="Operasional">Operasional</SelectItem>
+                        <SelectItem value="Pemasaran">Pemasaran</SelectItem>
+                        <SelectItem value="IT">IT</SelectItem>
+                        <SelectItem value="SDM">SDM</SelectItem>
+                        <SelectItem value="Keuangan">Keuangan</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -421,7 +379,7 @@ export default function Anggaran() {
             <div className="gradient-bg-1 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Anggaran Aktif</CardTitle>
-                <div className="text-2xl font-bold">Rp255.000.000</div>
+                <div className="text-2xl font-bold">Rp{summary.totalBudget.toLocaleString("id-ID")}</div>
               </CardContent>
             </div>
           </Card>
@@ -431,7 +389,7 @@ export default function Anggaran() {
             <div className="gradient-bg-2 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Terpakai</CardTitle>
-                <div className="text-2xl font-bold">Rp115.000.000</div>
+                <div className="text-2xl font-bold">Rp{summary.totalSpent.toLocaleString("id-ID")}</div>
               </CardContent>
             </div>
           </Card>
@@ -441,7 +399,7 @@ export default function Anggaran() {
             <div className="gradient-bg-3 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Alokasi Tambahan</CardTitle>
-                <div className="text-2xl font-bold">Rp18.000.000</div>
+                <div className="text-2xl font-bold">Rp{summary.totalAdditional.toLocaleString("id-ID")}</div>
               </CardContent>
             </div>
           </Card>
@@ -451,7 +409,7 @@ export default function Anggaran() {
             <div className="gradient-bg-4 p-1">
               <CardContent className="bg-white dark:bg-black rounded-xl p-6">
                 <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Sisa Anggaran</CardTitle>
-                <div className="text-2xl font-bold">Rp158.000.000</div>
+                <div className="text-2xl font-bold">Rp{summary.totalAvailable.toLocaleString("id-ID")}</div>
               </CardContent>
             </div>
           </Card>
@@ -513,85 +471,107 @@ export default function Anggaran() {
           <div className="bg-white dark:bg-black rounded-b-xl">
             <Table>
               <TableBody>
-                {filteredBudgets.map((budget, index) => {
-                  // Calculate percentage spent
-                  const percentSpent = (budget.spentAmount / budget.amount) * 100
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">
+                      <div className="flex justify-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      </div>
+                      <p className="mt-2 text-muted-foreground">Memuat data anggaran...</p>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredBudgets.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">
+                      <p className="text-muted-foreground">Tidak ada data anggaran yang ditemukan</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredBudgets.map((budget, index) => {
+                    // Calculate percentage spent
+                    const percentSpent = budget.amount > 0 ? (budget.spentAmount / budget.amount) * 100 : 0
 
-                  // Determine progress color based on percentage
-                  const progressColor =
-                    percentSpent > 90 ? "bg-red-500" : percentSpent > 70 ? "bg-yellow-500" : "bg-green-600"
+                    // Determine progress color based on percentage
+                    const progressColor =
+                      percentSpent > 90 ? "bg-red-500" : percentSpent > 70 ? "bg-yellow-500" : "bg-green-600"
 
-                  return (
-                    <motion.tr
-                      key={budget.id}
-                      className="hover:bg-primary/5 transition-colors"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      whileHover={{ scale: 1.01 }}
-                    >
-                      <TableCell className="font-medium">{budget.id}</TableCell>
-                      <TableCell>{budget.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 rounded-full">
-                          {budget.department}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {budget.startDate} - {budget.endDate}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{budget.amount.toLocaleString("id-ID")}</TableCell>
-                      <TableCell className="w-40">
-                        <div className="space-y-1">
-                          <Progress value={percentSpent} className={cn("h-2 rounded-full", progressColor)} />
-                          <div className="flex justify-between text-xs">
-                            <span>{percentSpent.toFixed(0)}% terpakai</span>
-                            <span>{(100 - percentSpent).toFixed(0)}% tersisa</span>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {budget.availableAmount.toLocaleString("id-ID")}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className="rounded-full"
-                          variant={
-                            budget.status === "active"
-                              ? "default"
-                              : budget.status === "completed"
-                                ? "outline"
-                                : "secondary"
-                          }
-                        >
-                          {budget.status === "active" ? "Aktif" : budget.status === "completed" ? "Selesai" : "Draft"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="rounded-full h-8 w-8"
-                            onClick={() => openBudgetDetails(budget)}
+                    return (
+                      <motion.tr
+                        key={budget.id}
+                        className="hover:bg-primary/5 transition-colors"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        whileHover={{ scale: 1.01 }}
+                      >
+                        <TableCell className="font-medium">{budget.id}</TableCell>
+                        <TableCell>{budget.name}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="bg-primary/10 text-primary border-primary/20 rounded-full"
                           >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {canManageBudgets && (
-                            <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-                              <Edit className="h-4 w-4" />
+                            {budget.department}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {budget.startDate} - {budget.endDate}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {budget.amount.toLocaleString("id-ID")}
+                        </TableCell>
+                        <TableCell className="w-40">
+                          <div className="space-y-1">
+                            <Progress value={percentSpent} className={cn("h-2 rounded-full", progressColor)} />
+                            <div className="flex justify-between text-xs">
+                              <span>{percentSpent.toFixed(0)}% terpakai</span>
+                              <span>{(100 - percentSpent).toFixed(0)}% tersisa</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {budget.availableAmount.toLocaleString("id-ID")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className="rounded-full"
+                            variant={
+                              budget.status === "active"
+                                ? "default"
+                                : budget.status === "completed"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                          >
+                            {budget.status === "active" ? "Aktif" : budget.status === "completed" ? "Selesai" : "Draft"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8"
+                              onClick={() => openBudgetDetails(budget)}
+                            >
+                              <Eye className="h-4 w-4" />
                             </Button>
-                          )}
-                          {role === "superadmin" && (
-                            <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-                              <Trash className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </motion.tr>
-                  )
-                })}
+                            {canManageBudgets && (
+                              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {role === "superadmin" && (
+                              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                                <Trash className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </motion.tr>
+                    )
+                  })
+                )}
               </TableBody>
             </Table>
           </div>
@@ -700,11 +680,7 @@ export default function Anggaran() {
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Alokasi Tambahan:</span>
                           <span className="font-medium">
-                            Rp{" "}
-                            {allocations
-                              .filter((a) => a.originalBudgetId === selectedBudget.id)
-                              .reduce((sum, a) => sum + a.amount, 0)
-                              .toLocaleString("id-ID")}
+                            Rp {(selectedBudget.additionalAmount || 0).toLocaleString("id-ID")}
                           </span>
                         </div>
                         <Separator className="my-2" />
@@ -729,88 +705,36 @@ export default function Anggaran() {
 
                 {/* Expenses Tab */}
                 <TabsContent value="expenses" className="mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Deskripsi</TableHead>
-                        <TableHead>Tanggal</TableHead>
-                        <TableHead className="text-right">Jumlah (Rp)</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {recentExpenses
-                        .filter((exp) => exp.budgetId === selectedBudget.id)
-                        .map((expense) => (
-                          <TableRow key={expense.id}>
-                            <TableCell className="font-medium">{expense.id}</TableCell>
-                            <TableCell>{expense.description}</TableCell>
-                            <TableCell>{expense.date}</TableCell>
-                            <TableCell className="text-right">{expense.amount.toLocaleString("id-ID")}</TableCell>
-                            <TableCell>
-                              <Badge
-                                className="rounded-full"
-                                variant={expense.status === "approved" ? "outline" : "secondary"}
-                              >
-                                {expense.status === "approved" ? "Disetujui" : "Tertunda"}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      {recentExpenses.filter((exp) => exp.budgetId === selectedBudget.id).length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
-                            Belum ada pengeluaran untuk anggaran ini
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Pengeluaran Terkait</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground mb-4">
+                        Daftar pengeluaran yang terkait dengan anggaran ini akan ditampilkan di sini.
+                      </p>
+                      <Button className="rounded-full" asChild>
+                        <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </TabsContent>
 
                 {/* Allocations Tab */}
                 <TabsContent value="allocations" className="mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Deskripsi</TableHead>
-                        <TableHead>Alasan</TableHead>
-                        <TableHead>Tanggal</TableHead>
-                        <TableHead className="text-right">Jumlah (Rp)</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {allocations
-                        .filter((alloc) => alloc.originalBudgetId === selectedBudget.id)
-                        .map((allocation) => (
-                          <TableRow key={allocation.id}>
-                            <TableCell className="font-medium">{allocation.id}</TableCell>
-                            <TableCell>{allocation.description}</TableCell>
-                            <TableCell>{allocation.reason}</TableCell>
-                            <TableCell>{allocation.requestDate}</TableCell>
-                            <TableCell className="text-right">{allocation.amount.toLocaleString("id-ID")}</TableCell>
-                            <TableCell>
-                              <Badge
-                                className="rounded-full"
-                                variant={allocation.status === "approved" ? "outline" : "secondary"}
-                              >
-                                {allocation.status === "approved" ? "Disetujui" : "Tertunda"}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      {allocations.filter((alloc) => alloc.originalBudgetId === selectedBudget.id).length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
-                            Belum ada alokasi tambahan untuk anggaran ini
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Alokasi Tambahan</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground mb-4">
+                        Daftar alokasi tambahan untuk anggaran ini akan ditampilkan di sini.
+                      </p>
+                      <Button className="rounded-full" asChild>
+                        <a href={`/anggaran-tambahan?budget=${selectedBudget.id}`}>Lihat Semua Alokasi</a>
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </TabsContent>
               </Tabs>
             </>
