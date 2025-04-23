@@ -7,7 +7,6 @@ import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -22,7 +21,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CalendarIcon, Check, Eye, Plus, Search, X } from "lucide-react"
+import { CalendarIcon, Eye, Plus, Search } from "lucide-react"
 import { format } from "date-fns"
 import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -51,10 +50,8 @@ export default function AnggaranTambahan() {
   const expenseIdParam = searchParams.get("expense")
 
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
   const [requestDate, setRequestDate] = useState<Date>()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState("all")
   const [selectedAllocation, setSelectedAllocation] = useState<AdditionalAllocation | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -62,8 +59,6 @@ export default function AnggaranTambahan() {
   const [budgets, setBudgets] = useState<{ id: string; name: string }[]>([])
   const [summary, setSummary] = useState({
     total: 0,
-    approved: 0,
-    pending: 0,
   })
 
   // Form state
@@ -144,22 +139,14 @@ export default function AnggaranTambahan() {
 
   // Filter allocations based on tab, search, status, and department
   const filteredAllocations = allocations.filter((allocation) => {
-    const matchesTab =
-      (activeTab === "pending" && allocation.status === "pending") ||
-      (activeTab === "approved" && allocation.status === "approved") ||
-      (activeTab === "rejected" && allocation.status === "rejected") ||
-      activeTab === "all"
-
     const matchesSearch =
       allocation.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       allocation.id.includes(searchTerm) ||
-      allocation.originalBudgetName.toLowerCase().includes(searchTerm.toLowerCase())
-
-    const matchesStatus = statusFilter === "all" || allocation.status === statusFilter
+      allocation.originalBudgetName?.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesBudget = !budgetIdParam || allocation.originalBudgetId === budgetIdParam
 
-    return matchesTab && matchesSearch && matchesStatus && matchesBudget
+    return matchesSearch && matchesBudget
   })
 
   // Handle allocation creation
@@ -467,17 +454,6 @@ export default function AnggaranTambahan() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full md:w-[180px] rounded-full border-primary/20">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="all">Semua Status</SelectItem>
-            <SelectItem value="pending">Tertunda</SelectItem>
-            <SelectItem value="approved">Disetujui</SelectItem>
-            <SelectItem value="rejected">Ditolak</SelectItem>
-          </SelectContent>
-        </Select>
       </motion.div>
 
       {/* Summary cards */}
@@ -492,58 +468,6 @@ export default function AnggaranTambahan() {
             </div>
           </Card>
         </motion.div>
-        <motion.div variants={item}>
-          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-            <div className="gradient-bg-2 p-1">
-              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Alokasi Disetujui</CardTitle>
-                <div className="text-2xl font-bold">{formatRupiah(summary.approved)}</div>
-              </CardContent>
-            </div>
-          </Card>
-        </motion.div>
-        <motion.div variants={item}>
-          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-            <div className="gradient-bg-3 p-1">
-              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Menunggu Persetujuan</CardTitle>
-                <div className="text-2xl font-bold">{formatRupiah(summary.pending)}</div>
-              </CardContent>
-            </div>
-          </Card>
-        </motion.div>
-      </motion.div>
-
-      {/* Allocation Tabs */}
-      <motion.div variants={item}>
-        <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 md:w-auto md:inline-flex md:grid-cols-none rounded-full p-1 bg-muted/50 backdrop-blur-sm">
-            <TabsTrigger
-              value="all"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Semua
-            </TabsTrigger>
-            <TabsTrigger
-              value="pending"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Tertunda
-            </TabsTrigger>
-            <TabsTrigger
-              value="approved"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Disetujui
-            </TabsTrigger>
-            <TabsTrigger
-              value="rejected"
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-            >
-              Ditolak
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </motion.div>
 
       {/* Allocation Table */}
@@ -558,7 +482,6 @@ export default function AnggaranTambahan() {
                   <TableHead className="font-display">Anggaran Asal</TableHead>
                   <TableHead className="font-display">Tanggal</TableHead>
                   <TableHead className="text-right font-display">Jumlah</TableHead>
-                  <TableHead className="font-display">Status</TableHead>
                   <TableHead className="text-right font-display">Tindakan</TableHead>
                 </TableRow>
               </TableHeader>
@@ -597,24 +520,6 @@ export default function AnggaranTambahan() {
                       <TableCell>{allocation.originalBudgetName}</TableCell>
                       <TableCell>{allocation.requestDate}</TableCell>
                       <TableCell className="text-right font-medium">{formatRupiah(allocation.amount)}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className="rounded-full"
-                          variant={
-                            allocation.status === "approved"
-                              ? "default"
-                              : allocation.status === "rejected"
-                                ? "destructive"
-                                : "outline"
-                          }
-                        >
-                          {allocation.status === "approved"
-                            ? "Disetujui"
-                            : allocation.status === "rejected"
-                              ? "Ditolak"
-                              : "Tertunda"}
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button
@@ -625,30 +530,6 @@ export default function AnggaranTambahan() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {canManageAllocations && allocation.status === "pending" && (
-                            <>
-                              <LoadingButton
-                                variant="ghost"
-                                size="icon"
-                                className="rounded-full h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-50"
-                                onClick={() => handleUpdateStatus(allocation.id, "approved")}
-                                isLoading={isApproving}
-                                loadingText="Menyetujui..."
-                              >
-                                <Check className="h-4 w-4" />
-                              </LoadingButton>
-                              <LoadingButton
-                                variant="ghost"
-                                size="icon"
-                                className="rounded-full h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                onClick={() => handleUpdateStatus(allocation.id, "rejected")}
-                                isLoading={isRejecting}
-                                loadingText="Menolak..."
-                              >
-                                <X className="h-4 w-4" />
-                              </LoadingButton>
-                            </>
-                          )}
                         </div>
                       </TableCell>
                     </motion.tr>
@@ -721,29 +602,6 @@ export default function AnggaranTambahan() {
                         <p className="text-lg font-medium">{formatRupiah(selectedAllocation.amount)}</p>
                       </CardContent>
                     </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Status</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <Badge
-                          className="rounded-full"
-                          variant={
-                            selectedAllocation.status === "approved"
-                              ? "default"
-                              : selectedAllocation.status === "rejected"
-                                ? "destructive"
-                                : "outline"
-                          }
-                        >
-                          {selectedAllocation.status === "approved"
-                            ? "Disetujui"
-                            : selectedAllocation.status === "rejected"
-                              ? "Ditolak"
-                              : "Tertunda"}
-                        </Badge>
-                      </CardContent>
-                    </Card>
                   </div>
 
                   <Card>
@@ -784,30 +642,6 @@ export default function AnggaranTambahan() {
                       </div>
                     </CardContent>
                   </Card>
-
-                  {canManageAllocations && selectedAllocation.status === "pending" && (
-                    <div className="flex justify-end gap-4 mt-4">
-                      <LoadingButton
-                        variant="outline"
-                        className="rounded-full border-red-500 text-red-500 hover:bg-red-50"
-                        onClick={() => handleUpdateStatus(selectedAllocation.id, "rejected")}
-                        isLoading={isRejecting}
-                        loadingText="Menolak..."
-                      >
-                        <X className="mr-2 h-4 w-4" />
-                        Tolak Alokasi
-                      </LoadingButton>
-                      <LoadingButton
-                        className="rounded-full bg-green-600 hover:bg-green-700 text-white"
-                        onClick={() => handleUpdateStatus(selectedAllocation.id, "approved")}
-                        isLoading={isApproving}
-                        loadingText="Menyetujui..."
-                      >
-                        <Check className="mr-2 h-4 w-4" />
-                        Setujui Alokasi
-                      </LoadingButton>
-                    </div>
-                  )}
                 </TabsContent>
 
                 {/* Related Expense Tab */}
@@ -830,25 +664,6 @@ export default function AnggaranTambahan() {
                           <div>
                             <h4 className="text-sm font-medium text-muted-foreground">Jumlah</h4>
                             <p className="font-medium">{formatRupiah(selectedAllocation.relatedExpense.amount)}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">Status Pengeluaran</h4>
-                            <Badge
-                              className="rounded-full mt-1"
-                              variant={
-                                selectedAllocation.relatedExpense.status === "approved"
-                                  ? "default"
-                                  : selectedAllocation.relatedExpense.status === "rejected"
-                                    ? "destructive"
-                                    : "outline"
-                              }
-                            >
-                              {selectedAllocation.relatedExpense.status === "approved"
-                                ? "Disetujui"
-                                : selectedAllocation.relatedExpense.status === "rejected"
-                                  ? "Ditolak"
-                                  : "Tertunda"}
-                            </Badge>
                           </div>
                         </div>
                         <div className="mt-6">

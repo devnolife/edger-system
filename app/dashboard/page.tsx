@@ -1,5 +1,7 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -8,21 +10,41 @@ import { PendingApprovals } from "@/components/pending-approvals"
 import { FinancialSummary } from "@/components/financial-summary"
 import { useUserRole } from "@/hooks/use-user-role"
 import { motion } from "framer-motion"
-import { ArrowUp, Wallet, CreditCard, Activity } from "lucide-react"
+import { ArrowUp, Wallet, Activity } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { getDashboardSummary } from "@/app/actions/dashboard-actions"
+import { formatRupiah } from "@/lib/format-rupiah"
 
 export default function Dashboard() {
   const { role } = useUserRole()
   const [activeTab, setActiveTab] = useState("overview")
   const [isLoading, setIsLoading] = useState(true)
+  const [dashboardData, setDashboardData] = useState({
+    totalAssets: 0,
+    totalExpenses: 0,
+    expenseGrowth: 0,
+  })
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Simulate data loading
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
+    const fetchData = async () => {
+      try {
+        setIsLoading(true)
+        const result = await getDashboardSummary()
+        if (result.success && result.data) {
+          setDashboardData(result.data)
+        } else {
+          setError(result.error || "Failed to fetch dashboard data")
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+        setError("An unexpected error occurred")
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-    return () => clearTimeout(timer)
+    fetchData()
   }, [])
 
   const container = {
@@ -54,6 +76,13 @@ export default function Dashboard() {
       {isLoading ? (
         <div className="flex items-center justify-center h-[400px]">
           <LoadingSpinner size="lg" text="Memuat data dashboard..." />
+        </div>
+      ) : error ? (
+        <div className="flex items-center justify-center h-[400px]">
+          <div className="text-center">
+            <p className="text-red-500 mb-2">Error: {error}</p>
+            <Button onClick={() => window.location.reload()}>Coba Lagi</Button>
+          </div>
         </div>
       ) : (
         <>
@@ -92,12 +121,7 @@ export default function Dashboard() {
             </motion.div>
 
             <TabsContent value="overview" className="space-y-6">
-              <motion.div
-                className="grid gap-6 md:grid-cols-2 lg:grid-cols-3"
-                variants={container}
-                initial="hidden"
-                animate="show"
-              >
+              <motion.div className="grid gap-6 md:grid-cols-2" variants={container} initial="hidden" animate="show">
                 <motion.div variants={item}>
                   <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
                     <div className="gradient-bg-1 p-1">
@@ -105,36 +129,14 @@ export default function Dashboard() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Total Aset</p>
-                            <h3 className="text-2xl font-bold mt-1">Rp45.231.890</h3>
+                            <h3 className="text-2xl font-bold mt-1">{formatRupiah(dashboardData.totalAssets)}</h3>
                             <p className="text-xs flex items-center mt-1 text-green-500 font-medium">
                               <ArrowUp className="h-3 w-3 mr-1" />
-                              +20,1% dari bulan lalu
+                              Anggaran Aktif
                             </p>
                           </div>
                           <div className="h-12 w-12 rounded-full bg-[#3674B5]/10 flex items-center justify-center">
                             <Wallet className="h-6 w-6 text-[#3674B5]" />
-                          </div>
-                        </div>
-                      </CardContent>
-                    </div>
-                  </Card>
-                </motion.div>
-
-                <motion.div variants={item}>
-                  <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-                    <div className="gradient-bg-2 p-1">
-                      <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Total Kewajiban</p>
-                            <h3 className="text-2xl font-bold mt-1">Rp12.234.590</h3>
-                            <p className="text-xs flex items-center mt-1 text-green-500 font-medium">
-                              <ArrowUp className="h-3 w-3 mr-1" />
-                              +4,3% dari bulan lalu
-                            </p>
-                          </div>
-                          <div className="h-12 w-12 rounded-full bg-[#578FCA]/10 flex items-center justify-center">
-                            <CreditCard className="h-6 w-6 text-[#578FCA]" />
                           </div>
                         </div>
                       </CardContent>
@@ -149,10 +151,14 @@ export default function Dashboard() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Pengeluaran</p>
-                            <h3 className="text-2xl font-bold mt-1">Rp9.876.540</h3>
-                            <p className="text-xs flex items-center mt-1 text-green-500 font-medium">
-                              <ArrowUp className="h-3 w-3 mr-1" />
-                              +7,2% dari bulan lalu
+                            <h3 className="text-2xl font-bold mt-1">{formatRupiah(dashboardData.totalExpenses)}</h3>
+                            <p
+                              className={`text-xs flex items-center mt-1 ${dashboardData.expenseGrowth >= 0 ? "text-green-500" : "text-red-500"} font-medium`}
+                            >
+                              <ArrowUp
+                                className={`h-3 w-3 mr-1 ${dashboardData.expenseGrowth < 0 ? "transform rotate-180" : ""}`}
+                              />
+                              {dashboardData.expenseGrowth.toFixed(1)}% dari bulan lalu
                             </p>
                           </div>
                           <div className="h-12 w-12 rounded-full bg-[#A1E3F9]/10 flex items-center justify-center">

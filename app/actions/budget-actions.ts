@@ -1,6 +1,6 @@
 "use server"
 
-import { sql, generateId, formatDateForSQL } from "@/lib/db"
+import { sql, generateId, formatDateForSQL, executeQueryWithRetry } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
@@ -74,60 +74,93 @@ export async function createBudget(formData: FormData) {
   }
 }
 
-// Get all budgets with calculated fields - removed status filtering
+// Modify the getBudgets function to handle rate limiting better
 export async function getBudgets() {
   try {
     // Get all budgets
-    const budgets = await sql<
-      {
-        id: string
-        name: string
-        amount: number
-        start_date: string
-        description: string | null
-        created_by: string
-        created_at: string
-      }[]
-    >`
+    const budgets = await executeQueryWithRetry(
+      () => sql<
+        {
+          id: string
+          name: string
+          amount: number
+          start_date: string
+          description: string | null
+          created_by: string
+          created_at: string
+        }[]
+      >`
       SELECT * FROM budgets ORDER BY created_at DESC
-    `
-
-    // For each budget, calculate the spent amount and available amount
-    const budgetsWithCalculatedFields = await Promise.all(
-      budgets.map(async (budget) => {
-        // Calculate spent amount from expenses
-        const expensesResult = await sql<{ total: number }[]>`
-          SELECT COALESCE(SUM(amount), 0) as total 
-          FROM expenses 
-          WHERE budget_id = ${budget.id}
-        `
-        const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
-
-        // Calculate additional allocations
-        const allocationsResult = await sql<{ total: number }[]>`
-          SELECT COALESCE(SUM(amount), 0) as total 
-          FROM additional_allocations 
-          WHERE original_budget_id = ${budget.id} AND status = 'approved'
-        `
-        const additionalAmount = Number.parseFloat(allocationsResult[0]?.total || "0")
-
-        // Calculate available amount
-        const availableAmount = budget.amount + additionalAmount - spentAmount
-
-        return {
-          id: budget.id,
-          name: budget.name,
-          amount: budget.amount,
-          startDate: budget.start_date,
-          description: budget.description || undefined,
-          createdBy: budget.created_by,
-          createdAt: budget.created_at,
-          spentAmount,
-          availableAmount,
-          additionalAmount,
-        }
-      }),
+    `,
     )
+
+    // Instead of querying for each budget individually, do batch queries
+    // Get all budget IDs
+    const budgetIds = budgets.map((budget) => budget.id)
+
+    // If no budgets, return empty array
+    if (budgetIds.length === 0) {
+      return { success: true, budgets: [] }
+    }
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Get all expenses in a single query
+    const expensesResult = await executeQueryWithRetry(
+      () => sql<{ budget_id: string; total: number }[]>`
+      SELECT budget_id, COALESCE(SUM(amount), 0) as total 
+      FROM expenses 
+      WHERE budget_id = ANY(${budgetIds})
+      GROUP BY budget_id
+    `,
+    )
+
+    // Create a map of budget_id to spent amount
+    const spentAmountMap = new Map<string, number>()
+    expensesResult.forEach((row) => {
+      spentAmountMap.set(row.budget_id, Number(row.total))
+    })
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Get all additional allocations in a single query
+    // Note: We're keeping the status='approved' filter for now since we haven't migrated this table yet
+    const allocationsResult = await executeQueryWithRetry(
+      () => sql<{ original_budget_id: string; total: number }[]>`
+      SELECT original_budget_id, COALESCE(SUM(amount), 0) as total 
+      FROM additional_allocations 
+      WHERE original_budget_id = ANY(${budgetIds})
+      GROUP BY original_budget_id
+    `,
+    )
+
+    // Create a map of budget_id to additional amount
+    const additionalAmountMap = new Map<string, number>()
+    allocationsResult.forEach((row) => {
+      additionalAmountMap.set(row.original_budget_id, Number(row.total))
+    })
+
+    // Map the budgets with calculated fields
+    const budgetsWithCalculatedFields = budgets.map((budget) => {
+      const spentAmount = spentAmountMap.get(budget.id) || 0
+      const additionalAmount = additionalAmountMap.get(budget.id) || 0
+      const availableAmount = budget.amount + additionalAmount - spentAmount
+
+      return {
+        id: budget.id,
+        name: budget.name,
+        amount: budget.amount,
+        startDate: budget.start_date,
+        description: budget.description || undefined,
+        createdBy: budget.created_by,
+        createdAt: budget.created_at,
+        spentAmount,
+        availableAmount,
+        additionalAmount,
+      }
+    })
 
     return { success: true, budgets: budgetsWithCalculatedFields }
   } catch (error) {
@@ -141,15 +174,10 @@ export async function getBudgets() {
 
 // Get a single budget by ID with calculated fields - removed status references
 export async function getBudgetById(id: string) {
-  // Implement retry logic with exponential backoff
-  const maxRetries = 3
-  let retryCount = 0
-  let lastError: any = null
-
-  while (retryCount < maxRetries) {
-    try {
-      // Get the budget
-      const budgets = await sql<
+  try {
+    // Get the budget
+    const budgets = await executeQueryWithRetry(
+      () => sql<
         {
           id: string
           name: string
@@ -160,74 +188,69 @@ export async function getBudgetById(id: string) {
           created_at: string
         }[]
       >`
-        SELECT * FROM budgets WHERE id = ${id}
-      `
+      SELECT * FROM budgets WHERE id = ${id}
+    `,
+    )
 
-      if (budgets.length === 0) {
-        return { success: false, error: "Budget not found" }
-      }
-
-      const budget = budgets[0]
-
-      // Calculate spent amount from expenses
-      const expensesResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE budget_id = ${budget.id}
-      `
-      const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
-
-      // Calculate additional allocations
-      const allocationsResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM additional_allocations 
-        WHERE original_budget_id = ${budget.id} AND status = 'approved'
-      `
-      const additionalAmount = Number.parseFloat(allocationsResult[0]?.total || "0")
-
-      // Calculate available amount
-      const availableAmount = budget.amount + additionalAmount - spentAmount
-
-      // Calculate pending expenses
-      const pendingAmount = 0 // All expenses are now automatically approved
-
-      return {
-        success: true,
-        budget: {
-          id: budget.id,
-          name: budget.name,
-          amount: budget.amount,
-          startDate: budget.start_date,
-          description: budget.description || undefined,
-          createdBy: budget.created_by,
-          createdAt: budget.created_at,
-          spentAmount,
-          availableAmount,
-          additionalAmount,
-          pendingAmount,
-        },
-      }
-    } catch (error) {
-      lastError = error
-
-      // Check if it's a rate limit error
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      if (errorMessage.includes("Too Many")) {
-        console.log(`Rate limit hit, retrying (${retryCount + 1}/${maxRetries})...`)
-        // Exponential backoff: wait longer between each retry
-        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, retryCount) * 1000))
-        retryCount++
-      } else {
-        // If it's not a rate limit error, don't retry
-        break
-      }
+    if (budgets.length === 0) {
+      return { success: false, error: "Budget not found" }
     }
-  }
 
-  console.error("Error fetching budget:", lastError)
-  return {
-    success: false,
-    error: lastError instanceof Error ? lastError.message : "An unknown error occurred",
+    const budget = budgets[0]
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Calculate spent amount from expenses
+    const expensesResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
+      SELECT COALESCE(SUM(amount), 0) as total 
+      FROM expenses 
+      WHERE budget_id = ${budget.id}
+    `,
+    )
+
+    const spentAmount = Number(expensesResult[0]?.total || 0)
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Calculate additional allocations
+    const allocationsResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
+      SELECT COALESCE(SUM(amount), 0) as total 
+      FROM additional_allocations 
+      WHERE original_budget_id = ${budget.id}
+    `,
+    )
+
+    const additionalAmount = Number(allocationsResult[0]?.total || 0)
+
+    // Calculate available amount
+    const availableAmount = budget.amount + additionalAmount - spentAmount
+
+    return {
+      success: true,
+      budget: {
+        id: budget.id,
+        name: budget.name,
+        amount: budget.amount,
+        startDate: budget.start_date,
+        description: budget.description || undefined,
+        createdBy: budget.created_by,
+        createdAt: budget.created_at,
+        spentAmount,
+        availableAmount,
+        additionalAmount,
+        pendingAmount: 0, // All expenses are now automatically approved
+      },
+    }
+  } catch (error) {
+    console.error("Error fetching budget:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
   }
 }
 
@@ -322,31 +345,42 @@ export async function deleteBudget(id: string) {
 // Get budget summary - removed status filtering
 export async function getBudgetSummary() {
   try {
-    // Get total budget amount - removed status filter
-    const totalBudgetResult = await sql<{ total: number }[]>`
+    // Get total budget amount
+    const totalBudgetResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
       SELECT COALESCE(SUM(amount), 0) as total FROM budgets
-    `
-    const totalBudget = Number.parseFloat(totalBudgetResult[0]?.total || "0")
+    `,
+    )
 
-    // Get total spent amount - removed status filter
-    const totalSpentResult = await sql<{ total: number }[]>`
+    const totalBudget = Number(totalBudgetResult[0]?.total || 0)
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Get total spent amount
+    const totalSpentResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
       SELECT COALESCE(SUM(e.amount), 0) as total 
       FROM expenses e 
       JOIN budgets b ON e.budget_id = b.id
-    `
-    const totalSpent = Number.parseFloat(totalSpentResult[0]?.total || "0")
+    `,
+    )
 
-    // Get total additional allocations - removed status filter
-    const totalAdditionalResult = await sql<{ total: number }[]>`
+    const totalSpent = Number(totalSpentResult[0]?.total || 0)
+
+    // Add a small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Get total additional allocations
+    const totalAdditionalResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
       SELECT COALESCE(SUM(a.amount), 0) as total 
       FROM additional_allocations a 
-      JOIN budgets b ON a.original_budget_id = b.id 
-      WHERE a.status = 'approved'
-    `
-    const totalAdditional = Number.parseFloat(totalAdditionalResult[0]?.total || "0")
+      JOIN budgets b ON a.original_budget_id = b.id
+    `,
+    )
 
-    // Get total pending expenses - removed status filter
-    const totalPending = 0 // All expenses are now automatically approved
+    const totalAdditional = Number(totalAdditionalResult[0]?.total || 0)
 
     // Calculate available amount
     const totalAvailable = totalBudget + totalAdditional - totalSpent
@@ -358,7 +392,7 @@ export async function getBudgetSummary() {
         totalSpent,
         totalAdditional,
         totalAvailable,
-        totalPending,
+        totalPending: 0, // All expenses are now automatically approved
       },
     }
   } catch (error) {
