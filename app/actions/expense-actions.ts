@@ -7,17 +7,16 @@ import { getBudgetById } from "./budget-actions"
 // Add this import at the top of the file
 import { updateBudgetCalculations, trackBudgetUsage } from "@/lib/budget-update-service"
 
-// Define types
-export type ExpenseStatus = "pending" | "approved" | "rejected"
+// Remove this line:
+// export type ExpenseStatus = "pending" | "approved" | "rejected"
 
-// Update the Expense interface to remove the department field
+// Update the Expense interface to remove the status field:
 export interface Expense {
   id: string
   budgetId: string
   description: string
   amount: number
   date: string
-  status: ExpenseStatus
   submittedBy: string
   submittedAt: string
   approvedBy?: string
@@ -26,7 +25,7 @@ export interface Expense {
   additionalAllocationId?: string
 }
 
-// Update the validation schema to remove the department field
+// Updated validation schema without status field
 const expenseSchema = z.object({
   budgetId: z.string().min(1, "Budget ID is required"),
   description: z.string().min(3, "Description must be at least 3 characters"),
@@ -36,13 +35,18 @@ const expenseSchema = z.object({
   notes: z.string().optional(),
 })
 
-// Then modify the createExpense function to include the budget update
+// Refactored createExpense function to directly update budget calculations
 export async function createExpense(formData: FormData) {
   try {
     // Extract and validate data
     const budgetId = formData.get("budgetId") as string
     const description = formData.get("description") as string
-    const amount = Number.parseFloat(formData.get("amount") as string)
+    const amountStr = formData.get("amount") as string
+    // Ensure we're properly parsing the amount, which might be a formatted string
+    const amount =
+      typeof amountStr === "string" && amountStr.includes(",")
+        ? Number.parseFloat(amountStr.replace(/[^\d.-]/g, ""))
+        : Number.parseFloat(amountStr)
     const date = formData.get("date") as string
     const submittedBy = formData.get("submittedBy") as string
     const notes = (formData.get("notes") as string) || ""
@@ -77,13 +81,14 @@ export async function createExpense(formData: FormData) {
       needsAllocation = true
       const shortageAmount = validatedData.amount - availableAmount
 
-      // Create an additional allocation
+      // Create an additional allocation that is automatically approved
       additionalAllocationId = generateId("ADD")
 
       await sql`
         INSERT INTO additional_allocations (
           id, original_budget_id, description, reason, amount, 
-          request_date, status, requested_by, related_expense_id
+          request_date, status, requested_by, related_expense_id,
+          approved_by, approved_at
         ) VALUES (
           ${additionalAllocationId}, 
           ${validatedData.budgetId}, 
@@ -91,41 +96,37 @@ export async function createExpense(formData: FormData) {
           ${"Pengeluaran melebihi anggaran yang tersedia"}, 
           ${shortageAmount}, 
           ${formatDateForSQL(validatedData.date)}, 
-          'pending', 
+          'approved', 
           ${validatedData.submittedBy},
-          ${id}
+          ${id},
+          ${validatedData.submittedBy},
+          CURRENT_TIMESTAMP
         )
       `
     }
 
-    // Insert the expense record
+    // Insert the expense record - without status field
     await sql`
       INSERT INTO expenses (
         id, budget_id, description, amount, date, 
-        status, submitted_by, notes,
-        additional_allocation_id
+        submitted_by, notes, additional_allocation_id
       ) VALUES (
         ${id}, 
         ${validatedData.budgetId}, 
         ${validatedData.description}, 
         ${validatedData.amount}, 
         ${formatDateForSQL(validatedData.date)}, 
-        'pending', 
         ${validatedData.submittedBy}, 
         ${validatedData.notes},
         ${additionalAllocationId}
       )
     `
 
-    // Update budget calculations
-    await updateBudgetCalculations(validatedData.budgetId, validatedData.amount)
+    // Update budget calculations - now always with isApproved=true
+    await updateBudgetCalculations(validatedData.budgetId, validatedData.amount, true)
 
-    // Track budget usage for history (this won't cause errors now)
+    // Track budget usage for history
     await trackBudgetUsage(validatedData.budgetId, validatedData.amount, id)
-
-    // Emit a budget update event for real-time UI updates
-    // This is a client-side function, so we can't call it directly from a server action
-    // Instead, we'll rely on the client to emit the event when it receives the response
 
     // Revalidate the expenses page to reflect the changes
     revalidatePath("/pengeluaran")
@@ -150,98 +151,9 @@ export async function createExpense(formData: FormData) {
   }
 }
 
-// Modify the updateExpenseStatus function
-export async function updateExpenseStatus(id: string, status: ExpenseStatus, approvedBy: string) {
-  try {
-    // Get the expense details first to know the budget and amount
-    const expenseResult = await sql<
-      {
-        id: string
-        budget_id: string
-        amount: number
-        additional_allocation_id: string | null
-      }[]
-    >`
-      SELECT id, budget_id, amount, additional_allocation_id
-      FROM expenses
-      WHERE id = ${id}
-    `
+// Remove the commented-out updateExpenseStatus function entirely since it's no longer needed.
 
-    if (expenseResult.length === 0) {
-      return { success: false, error: "Expense not found" }
-    }
-
-    const expense = expenseResult[0]
-
-    // Update the expense status
-    await sql`
-      UPDATE expenses 
-      SET 
-        status = ${status}, 
-        approved_by = ${approvedBy}, 
-        approved_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
-    `
-
-    // If the expense is approved, update the budget's available amount
-    if (status === "approved") {
-      // Update budget calculations with the approved flag
-      await updateBudgetCalculations(expense.budget_id, Number(expense.amount), true)
-
-      // If there's an additional allocation request, approve it as well
-      if (expense.additional_allocation_id) {
-        await sql`
-          UPDATE additional_allocations
-          SET 
-            status = 'approved', 
-            approved_by = ${approvedBy}, 
-            approved_at = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${expense.additional_allocation_id}
-        `
-      }
-    }
-
-    // If the expense is rejected, also reject any associated additional allocation
-    if (status === "rejected") {
-      if (expense.additional_allocation_id) {
-        await sql`
-          UPDATE additional_allocations
-          SET 
-            status = 'rejected', 
-            approved_by = ${approvedBy}, 
-            approved_at = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${expense.additional_allocation_id}
-        `
-      }
-    }
-
-    // Revalidate the expenses page to reflect the changes
-    revalidatePath("/pengeluaran")
-    // Also revalidate the budget page to reflect the updated budget amounts
-    revalidatePath("/anggaran")
-    // Revalidate the additional allocations page if there was an allocation
-    if (expense.additional_allocation_id) {
-      revalidatePath("/anggaran-tambahan")
-    }
-
-    return {
-      success: true,
-      budgetId: expense.budget_id,
-      expenseAmount: Number(expense.amount),
-    }
-  } catch (error) {
-    console.error("Error updating expense status:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
-  }
-}
-
-// Get all expenses
+// Get all expenses - updated to remove status filtering
 export async function getExpenses() {
   try {
     // Get all expenses with budget name
@@ -253,11 +165,8 @@ export async function getExpenses() {
         description: string
         amount: number
         date: string
-        status: ExpenseStatus
         submitted_by: string
         submitted_at: string
-        approved_by: string | null
-        approved_at: string | null
         notes: string | null
         additional_allocation_id: string | null
       }[]
@@ -279,11 +188,8 @@ export async function getExpenses() {
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
-        status: expense.status,
         submittedBy: expense.submitted_by,
         submittedAt: expense.submitted_at,
-        approvedBy: expense.approved_by || undefined,
-        approvedAt: expense.approved_at || undefined,
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
       })),
@@ -297,7 +203,7 @@ export async function getExpenses() {
   }
 }
 
-// Get a single expense by ID
+// Get a single expense by ID - updated to remove status references
 export async function getExpenseById(id: string) {
   try {
     // Get the expense with budget name
@@ -309,11 +215,8 @@ export async function getExpenseById(id: string) {
         description: string
         amount: number
         date: string
-        status: ExpenseStatus
         submitted_by: string
         submitted_at: string
-        approved_by: string | null
-        approved_at: string | null
         notes: string | null
         additional_allocation_id: string | null
       }[]
@@ -367,11 +270,8 @@ export async function getExpenseById(id: string) {
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
-        status: expense.status,
         submittedBy: expense.submitted_by,
         submittedAt: expense.submitted_at,
-        approvedBy: expense.approved_by || undefined,
-        approvedAt: expense.approved_at || undefined,
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
         additionalAllocation,
@@ -386,7 +286,7 @@ export async function getExpenseById(id: string) {
   }
 }
 
-// Get expense summary (total, approved, pending)
+// Get expense summary - updated to remove status filtering
 export async function getExpenseSummary() {
   // Implement retry logic with exponential backoff
   const maxRetries = 3
@@ -401,18 +301,6 @@ export async function getExpenseSummary() {
       `
       const total = Number.parseFloat(totalResult[0]?.total || "0")
 
-      // Get approved expense amount
-      const approvedResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'approved'
-      `
-      const approved = Number.parseFloat(approvedResult[0]?.total || "0")
-
-      // Get pending expense amount
-      const pendingResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE status = 'pending'
-      `
-      const pending = Number.parseFloat(pendingResult[0]?.total || "0")
-
       // Get expenses with additional allocations
       const withAllocationResult = await sql<{ total: number }[]>`
         SELECT COALESCE(SUM(amount), 0) as total 
@@ -421,12 +309,22 @@ export async function getExpenseSummary() {
       `
       const withAllocation = Number.parseFloat(withAllocationResult[0]?.total || "0")
 
+      // Get expenses by month
+      const currentMonth = new Date().getMonth() + 1 // JavaScript months are 0-indexed
+      const currentYear = new Date().getFullYear()
+      const monthlyResult = await sql<{ total: number }[]>`
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM expenses 
+        WHERE EXTRACT(MONTH FROM date::date) = ${currentMonth}
+        AND EXTRACT(YEAR FROM date::date) = ${currentYear}
+      `
+      const monthly = Number.parseFloat(monthlyResult[0]?.total || "0")
+
       return {
         success: true,
         summary: {
           total,
-          approved,
-          pending,
+          monthly,
           withAllocation,
         },
       }
@@ -454,7 +352,7 @@ export async function getExpenseSummary() {
   }
 }
 
-// Get expenses by budget ID
+// Get expenses by budget ID - updated to remove status filtering
 export async function getExpensesByBudgetId(budgetId: string) {
   try {
     const expenses = await sql<
@@ -463,11 +361,10 @@ export async function getExpensesByBudgetId(budgetId: string) {
         description: string
         amount: number
         date: string
-        status: ExpenseStatus
         submitted_by: string
       }[]
     >`
-      SELECT id, description, amount, date, status, submitted_by
+      SELECT id, description, amount, date, submitted_by
       FROM expenses
       WHERE budget_id = ${budgetId}
       ORDER BY date DESC
@@ -480,7 +377,6 @@ export async function getExpensesByBudgetId(budgetId: string) {
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
-        status: expense.status,
         submittedBy: expense.submitted_by,
       })),
     }

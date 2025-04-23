@@ -305,6 +305,7 @@ export default function Pengeluaran() {
 
   // Handle expense creation
   const handleCreateExpense = async () => {
+    // Validate required fields
     if (!budgetId || !description || !amount || !expenseDate) {
       toast({
         title: "Validation Error",
@@ -314,19 +315,23 @@ export default function Pengeluaran() {
       return
     }
 
+    // Set loading states
     setIsSubmitting(true)
     setIsProcessing(true)
 
-    const formData = new FormData()
-    formData.append("budgetId", budgetId)
-    formData.append("description", description)
-    formData.append("amount", amount)
-    formData.append("date", expenseDate.toISOString().split("T")[0])
-    formData.append("submittedBy", user?.name || "Unknown User")
-    formData.append("notes", notes)
-
     try {
+      // Prepare form data
+      const formData = new FormData()
+      formData.append("budgetId", budgetId)
+      formData.append("description", description)
+      formData.append("amount", amount)
+      formData.append("date", expenseDate.toISOString().split("T")[0])
+      formData.append("submittedBy", user?.name || "Unknown User")
+      formData.append("notes", notes)
+
+      // Call the server action
       const result = await createExpense(formData)
+
       if (result.success) {
         // Show success message
         toast({
@@ -342,21 +347,7 @@ export default function Pengeluaran() {
         }
 
         // Refresh expenses
-        const expensesResult = await getExpenses()
-        if (expensesResult.success) {
-          setExpenses(expensesResult.expenses)
-        }
-
-        // Refresh summary
-        const summaryResult = await getExpenseSummary()
-        if (summaryResult.success) {
-          setSummary({
-            total: Number(summaryResult.summary.total),
-            approved: Number(summaryResult.summary.approved),
-            pending: Number(summaryResult.summary.pending),
-            withAllocation: Number(summaryResult.summary.withAllocation),
-          })
-        }
+        await refreshExpenseData()
 
         // Refresh the selected budget to show updated amounts
         if (budgetId) {
@@ -387,6 +378,7 @@ export default function Pengeluaran() {
         setNeedsAllocation(false)
         setIsDialogOpen(false)
       } else {
+        // Show error message
         toast({
           title: "Error",
           description: result.error || "Failed to create expense",
@@ -401,6 +393,7 @@ export default function Pengeluaran() {
         variant: "destructive",
       })
     } finally {
+      // Reset loading states
       setIsSubmitting(false)
       setIsProcessing(false)
     }
@@ -628,6 +621,7 @@ export default function Pengeluaran() {
                 onClick={handleCreateExpense}
                 isLoading={isSubmitting}
                 loadingText="Menyimpan..."
+                disabled={isSubmitting || !budgetId || !description || !amount}
               >
                 Simpan Pengeluaran
               </LoadingButton>

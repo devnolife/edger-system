@@ -99,7 +99,7 @@ export async function getBudgets() {
         const expensesResult = await sql<{ total: number }[]>`
           SELECT COALESCE(SUM(amount), 0) as total 
           FROM expenses 
-          WHERE budget_id = ${budget.id} AND status = 'approved'
+          WHERE budget_id = ${budget.id}
         `
         const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
 
@@ -173,7 +173,7 @@ export async function getBudgetById(id: string) {
       const expensesResult = await sql<{ total: number }[]>`
         SELECT COALESCE(SUM(amount), 0) as total 
         FROM expenses 
-        WHERE budget_id = ${budget.id} AND status = 'approved'
+        WHERE budget_id = ${budget.id}
       `
       const spentAmount = Number.parseFloat(expensesResult[0]?.total || "0")
 
@@ -189,12 +189,7 @@ export async function getBudgetById(id: string) {
       const availableAmount = budget.amount + additionalAmount - spentAmount
 
       // Calculate pending expenses
-      const pendingExpensesResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE budget_id = ${budget.id} AND status = 'pending'
-      `
-      const pendingAmount = Number.parseFloat(pendingExpensesResult[0]?.total || "0")
+      const pendingAmount = 0 // All expenses are now automatically approved
 
       return {
         success: true,
@@ -337,8 +332,7 @@ export async function getBudgetSummary() {
     const totalSpentResult = await sql<{ total: number }[]>`
       SELECT COALESCE(SUM(e.amount), 0) as total 
       FROM expenses e 
-      JOIN budgets b ON e.budget_id = b.id 
-      WHERE e.status = 'approved'
+      JOIN budgets b ON e.budget_id = b.id
     `
     const totalSpent = Number.parseFloat(totalSpentResult[0]?.total || "0")
 
@@ -352,13 +346,7 @@ export async function getBudgetSummary() {
     const totalAdditional = Number.parseFloat(totalAdditionalResult[0]?.total || "0")
 
     // Get total pending expenses - removed status filter
-    const totalPendingResult = await sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(e.amount), 0) as total 
-      FROM expenses e 
-      JOIN budgets b ON e.budget_id = b.id 
-      WHERE e.status = 'pending'
-    `
-    const totalPending = Number.parseFloat(totalPendingResult[0]?.total || "0")
+    const totalPending = 0 // All expenses are now automatically approved
 
     // Calculate available amount
     const totalAvailable = totalBudget + totalAdditional - totalSpent

@@ -1,12 +1,6 @@
 "use client"
 
-import { TabsContent } from "@/components/ui/tabs"
-
-import { TabsTrigger } from "@/components/ui/tabs"
-
-import { TabsList } from "@/components/ui/tabs"
-
-import { Tabs } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 import { Separator } from "@/components/ui/separator"
 
@@ -44,6 +38,10 @@ import { useSearchParams } from "next/navigation"
 import { useBudgetUpdates } from "@/hooks/use-budget-updates"
 // Import the BudgetUpdateIndicator component at the top of the file
 import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
+// Also add the import for BudgetHistoryTab at the top of the file
+import { BudgetHistoryTab } from "@/components/budget-history-tab"
+// Add this import at the top of the file
+import { getExpensesByBudgetId } from "@/app/actions/expense-actions"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
@@ -66,6 +64,17 @@ export default function Anggaran() {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
   // First, let's add a refresh state variable near the other state variables
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  // Add these state variables after the other state declarations (around line 30)
+  const [budgetExpenses, setBudgetExpenses] = useState<
+    Array<{
+      id: string
+      description: string
+      amount: number
+      date: string
+      submittedBy: string
+    }>
+  >([])
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(false)
 
   // Form state
   const [budgetName, setBudgetName] = useState("")
@@ -244,19 +253,35 @@ export default function Anggaran() {
     }
   }
 
-  // Open budget details
+  // Modify the openBudgetDetails function to also fetch expenses
+  // Replace the existing openBudgetDetails function with this updated version
   const openBudgetDetails = async (budget: Budget) => {
     setIsLoadingDetails(true)
     setSelectedBudget(budget) // Set initial data from the list
     setIsDetailsOpen(true)
+    setBudgetExpenses([]) // Reset expenses when opening a new budget
 
     try {
       // Add a small delay to prevent rate limiting
       await new Promise((resolve) => setTimeout(resolve, 500))
 
+      // Fetch budget details
       const result = await getBudgetById(budget.id)
       if (result.success) {
         setSelectedBudget(result.budget)
+
+        // After fetching budget details, fetch associated expenses
+        setIsLoadingExpenses(true)
+        const expensesResult = await getExpensesByBudgetId(budget.id)
+        if (expensesResult.success) {
+          setBudgetExpenses(expensesResult.expenses)
+        } else {
+          toast({
+            title: "Warning",
+            description: "Could not load expense details. Showing limited information.",
+            variant: "default",
+          })
+        }
       } else {
         // If there's an error, we'll still show the dialog with the basic data we have
         toast({
@@ -274,6 +299,7 @@ export default function Anggaran() {
       })
     } finally {
       setIsLoadingDetails(false)
+      setIsLoadingExpenses(false)
     }
   }
 
@@ -571,7 +597,7 @@ export default function Anggaran() {
                 </div>
               ) : (
                 <Tabs defaultValue="overview" className="mt-4">
-                  <TabsList className="grid w-full grid-cols-3 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
+                  <TabsList className="grid w-full grid-cols-4 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
                     <TabsTrigger
                       value="overview"
                       className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
@@ -589,6 +615,12 @@ export default function Anggaran() {
                       className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
                     >
                       Alokasi Tambahan
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="history"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Riwayat Penggunaan
                     </TabsTrigger>
                   </TabsList>
 
@@ -679,12 +711,62 @@ export default function Anggaran() {
                         <CardTitle>Pengeluaran Terkait</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-muted-foreground mb-4">
-                          Daftar pengeluaran yang terkait dengan anggaran ini akan ditampilkan di sini.
-                        </p>
-                        <Button className="rounded-full" asChild>
-                          <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
-                        </Button>
+                        {isLoadingExpenses ? (
+                          <div className="flex justify-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                          </div>
+                        ) : budgetExpenses.length === 0 ? (
+                          <div className="text-center py-4">
+                            <p className="text-muted-foreground mb-4">Belum ada pengeluaran untuk anggaran ini.</p>
+                            <Button className="rounded-full" asChild>
+                              <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Tambah Pengeluaran</a>
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="space-y-4">
+                              {budgetExpenses.map((expense) => (
+                                <div
+                                  key={expense.id}
+                                  className="flex justify-between items-center p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                                >
+                                  <div>
+                                    <h4 className="font-medium">{expense.description}</h4>
+                                    <div className="flex gap-2 text-sm text-muted-foreground">
+                                      <span>{expense.date}</span>
+                                      <span>•</span>
+                                      <span>Oleh: {expense.submittedBy}</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-semibold">{formatRupiah(expense.amount)}</div>
+                                    <Button variant="ghost" size="sm" className="mt-1 h-8 rounded-full" asChild>
+                                      <a href={`/pengeluaran?expense=${expense.id}`}>
+                                        <Eye className="h-3.5 w-3.5 mr-1" />
+                                        Detail
+                                      </a>
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex justify-between items-center pt-4 border-t">
+                              <div>
+                                <p className="text-sm text-muted-foreground">
+                                  Total {budgetExpenses.length} pengeluaran
+                                </p>
+                                <p className="font-medium">
+                                  Total:{" "}
+                                  {formatRupiah(budgetExpenses.reduce((sum, expense) => sum + expense.amount, 0))}
+                                </p>
+                              </div>
+                              <Button className="rounded-full" asChild>
+                                <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -704,6 +786,20 @@ export default function Anggaran() {
                         </Button>
                       </CardContent>
                     </Card>
+                  </TabsContent>
+
+                  {/* History Tab */}
+                  <TabsContent value="history" className="mt-4">
+                    {selectedBudget && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Riwayat Penggunaan Anggaran</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <BudgetHistoryTab budgetId={selectedBudget.id} />
+                        </CardContent>
+                      </Card>
+                    )}
                   </TabsContent>
                 </Tabs>
               )}
