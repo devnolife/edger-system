@@ -11,10 +11,12 @@ import { CalendarIcon, Download, FileText, Printer, Share2, Eye } from "lucide-r
 import { format } from "date-fns"
 import { motion } from "framer-motion"
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "@/components/ui/chart"
+import { BudgetReportsSection } from "@/components/budget-reports-section"
+import { BudgetAllocationChart } from "@/components/budget-allocation-chart"
 
 export default function Laporan() {
   const [date, setDate] = useState<Date>()
-  const [reportType, setReportType] = useState("neraca")
+  const [reportType, setReportType] = useState("anggaran")
 
   const container = {
     hidden: { opacity: 0 },
@@ -117,7 +119,7 @@ export default function Laporan() {
         </Button>
       </motion.div>
 
-      <Tabs defaultValue="neraca" value={reportType} onValueChange={setReportType} className="space-y-6">
+      <Tabs defaultValue="anggaran" value={reportType} onValueChange={setReportType} className="space-y-6">
         <motion.div variants={item}>
           <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-flex md:grid-cols-none rounded-full p-1 bg-muted/50 backdrop-blur-sm">
             <TabsTrigger
@@ -369,6 +371,49 @@ export default function Laporan() {
         </TabsContent>
 
         <TabsContent value="anggaran" className="space-y-6">
+          {/* Budget Reports Section */}
+          <BudgetReportsSection />
+
+          {/* Budget Allocation Chart */}
+          <motion.div variants={item}>
+            <BudgetAllocationChart
+              budgets={[
+                {
+                  id: "BDG-2023-001",
+                  name: "Anggaran Operasional",
+                  amount: 30000000,
+                  spentAmount: 28500000,
+                  availableAmount: 1500000,
+                  additionalAmount: 0,
+                },
+                {
+                  id: "BDG-2023-002",
+                  name: "Anggaran Gaji dan Tunjangan",
+                  amount: 25000000,
+                  spentAmount: 25000000,
+                  availableAmount: 0,
+                  additionalAmount: 0,
+                },
+                {
+                  id: "BDG-2023-003",
+                  name: "Anggaran Pengadaan",
+                  amount: 15000000,
+                  spentAmount: 12500000,
+                  availableAmount: 2500000,
+                  additionalAmount: 0,
+                },
+                {
+                  id: "BDG-2023-004",
+                  name: "Anggaran Pelatihan",
+                  amount: 5000000,
+                  spentAmount: 3000000,
+                  availableAmount: 2000000,
+                  additionalAmount: 0,
+                },
+              ]}
+            />
+          </motion.div>
+
           <motion.div variants={item}>
             <Card className="rounded-2xl border-none shadow-lg overflow-hidden">
               <CardHeader className="bg-gradient-to-r from-primary/10 to-secondary/10 backdrop-blur-sm">

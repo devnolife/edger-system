@@ -10,14 +10,47 @@
     --card-foreground: 240 10% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
+
+    /* Primary blue palette */
     --primary: 210 54% 46%; /* #3674B5 - biru tua */
     --primary-foreground: 0 0% 98%;
     --secondary: 210 45% 57%; /* #578FCA - biru medium */
     --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
     --accent: 195 89% 80%; /* #A1E3F9 - biru muda */
     --accent-foreground: 240 5.9% 10%;
+
+    /* New requested colors */
+    --bright-blue: 219 88% 61%; /* #4379F2 */
+    --bright-yellow: 56 100% 50%; /* #FFEB00 */
+    --vibrant-green: 93 94% 39%; /* #6EC207 */
+    --deep-teal: 161 74% 26%; /* #117554 */
+
+    /* Extended color palette */
+    --teal: 175 84% 32%; /* #0B9B8A - teal */
+    --teal-light: 175 65% 65%; /* #5ECFC2 - light teal */
+    --purple: 262 51% 51%; /* #7B42C0 - purple */
+    --purple-light: 262 51% 75%; /* #B48EE0 - light purple */
+    --amber: 38 92% 50%; /* #F5A300 - amber */
+    --amber-light: 38 92% 70%; /* #FFCB66 - light amber */
+    --coral: 5 83% 63%; /* #F26B5B - coral */
+    --coral-light: 5 83% 83%; /* #FFBDB5 - light coral */
+    --forest: 150 60% 35%; /* #1F9D6B - forest green */
+    --forest-light: 150 60% 75%; /* #8EEBC3 - light forest */
+
+    /* Chart colors - updated to include new colors */
+    --chart-1: 210 54% 46%; /* Primary blue */
+    --chart-2: 175 84% 32%; /* Teal */
+    --chart-3: 262 51% 51%; /* Purple */
+    --chart-4: 219 88% 61%; /* Bright blue - #4379F2 */
+    --chart-5: 56 100% 50%; /* Bright yellow - #FFEB00 */
+    --chart-6: 93 94% 39%; /* Vibrant green - #6EC207 */
+    --chart-7: 161 74% 26%; /* Deep teal - #117554 */
+    --chart-8: 5 83% 63%; /* Coral */
+    --chart-9: 38 92% 50%; /* Amber */
+    --chart-10: 150 60% 35%; /* Forest */
+
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
@@ -33,14 +66,47 @@
     --card-foreground: 0 0% 98%;
     --popover: 240 10% 3.9%;
     --popover-foreground: 0 0% 98%;
+
+    /* Primary blue palette */
     --primary: 210 54% 46%; /* #3674B5 - biru tua */
     --primary-foreground: 0 0% 98%;
     --secondary: 210 45% 57%; /* #578FCA - biru medium */
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
     --accent: 195 89% 80%; /* #A1E3F9 - biru muda */
     --accent-foreground: 0 0% 98%;
+
+    /* New requested colors - slightly adjusted for dark mode */
+    --bright-blue: 219 88% 65%; /* #4379F2 - slightly brighter */
+    --bright-yellow: 56 90% 55%; /* #FFEB00 - slightly muted */
+    --vibrant-green: 93 84% 45%; /* #6EC207 - slightly muted */
+    --deep-teal: 161 74% 36%; /* #117554 - slightly brighter */
+
+    /* Extended color palette - dark mode versions */
+    --teal: 175 84% 32%; /* #0B9B8A - teal */
+    --teal-light: 175 65% 55%; /* darker in dark mode */
+    --purple: 262 51% 51%; /* #7B42C0 - purple */
+    --purple-light: 262 51% 65%; /* darker in dark mode */
+    --amber: 38 92% 50%; /* #F5A300 - amber */
+    --amber-light: 38 92% 60%; /* darker in dark mode */
+    --coral: 5 83% 63%; /* #F26B5B - coral */
+    --coral-light: 5 83% 73%; /* darker in dark mode */
+    --forest: 150 60% 35%; /* #1F9D6B - forest green */
+    --forest-light: 150 60% 65%; /* darker in dark mode */
+
+    /* Chart colors - updated for dark mode */
+    --chart-1: 210 54% 56%; /* Brighter in dark mode */
+    --chart-2: 175 84% 42%;
+    --chart-3: 262 51% 61%;
+    --chart-4: 219 88% 65%; /* Bright blue - adjusted */
+    --chart-5: 56 90% 55%; /* Bright yellow - adjusted */
+    --chart-6: 93 84% 45%; /* Vibrant green - adjusted */
+    --chart-7: 161 74% 36%; /* Deep teal - adjusted */
+    --chart-8: 5 83% 73%;
+    --chart-9: 38 92% 60%;
+    --chart-10: 150 60% 45%;
+
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 3.7% 15.9%;
@@ -76,12 +142,50 @@
   background: linear-gradient(135deg, #3674b5 0%, #d1f8ef 100%);
 }
 
+/* New gradients with requested colors */
+.gradient-bright-blue {
+  background: linear-gradient(135deg, #4379f2 0%, #a1e3f9 100%);
+}
+
+.gradient-vibrant-green {
+  background: linear-gradient(135deg, #6ec207 0%, #a1e3f9 100%);
+}
+
+.gradient-yellow-teal {
+  background: linear-gradient(135deg, #ffeb00 0%, #117554 100%);
+}
+
+.gradient-teal-blue {
+  background: linear-gradient(135deg, #117554 0%, #4379f2 100%);
+}
+
 .gradient-sidebar {
   background: linear-gradient(180deg, #3674b5 0%, #578fca 100%);
 }
 
 .gradient-header {
   background: linear-gradient(90deg, #3674b5 0%, #578fca 100%);
+}
+
+/* Card background gradients */
+.card-gradient-blue {
+  background: linear-gradient(135deg, rgba(54, 116, 181, 0.05) 0%, rgba(161, 227, 249, 0.1) 100%);
+}
+
+.card-gradient-bright-blue {
+  background: linear-gradient(135deg, rgba(67, 121, 242, 0.05) 0%, rgba(161, 227, 249, 0.1) 100%);
+}
+
+.card-gradient-yellow {
+  background: linear-gradient(135deg, rgba(255, 235, 0, 0.05) 0%, rgba(255, 235, 0, 0.1) 100%);
+}
+
+.card-gradient-green {
+  background: linear-gradient(135deg, rgba(110, 194, 7, 0.05) 0%, rgba(110, 194, 7, 0.1) 100%);
+}
+
+.card-gradient-teal {
+  background: linear-gradient(135deg, rgba(17, 117, 84, 0.05) 0%, rgba(17, 117, 84, 0.1) 100%);
 }
 
 /* Blob decorations */
@@ -115,6 +219,39 @@
   height: 200px;
   top: 40%;
   left: 30%;
+}
+
+/* New blobs with requested colors */
+.blob-bright-blue {
+  background: #4379f2;
+  width: 200px;
+  height: 200px;
+  top: 20%;
+  right: 20%;
+}
+
+.blob-yellow {
+  background: #ffeb00;
+  width: 150px;
+  height: 150px;
+  bottom: 15%;
+  right: 10%;
+}
+
+.blob-green {
+  background: #6ec207;
+  width: 180px;
+  height: 180px;
+  top: 30%;
+  left: 15%;
+}
+
+.blob-teal {
+  background: #117554;
+  width: 220px;
+  height: 220px;
+  bottom: 25%;
+  left: 25%;
 }
 
 /* Card hover effects */
@@ -185,4 +322,21 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #578fca;
+}
+
+/* Status indicators using new colors */
+.status-success {
+  background-color: #6ec207;
+}
+
+.status-warning {
+  background-color: #ffeb00;
+}
+
+.status-info {
+  background-color: #4379f2;
+}
+
+.status-critical {
+  background-color: #117554;
 }

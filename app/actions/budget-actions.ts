@@ -27,39 +27,192 @@ const budgetSchema = z.object({
   createdBy: z.string().min(1, "Creator is required"),
 })
 
-// Create a new budget - removed status parameter
+// Function to check if the budgets table exists
+async function ensureBudgetsTableExists() {
+  try {
+    // Check if the table exists
+    const tableExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'budgets'
+      ) as exists
+    `
+
+    if (!tableExists[0]?.exists) {
+      // Create the table if it doesn't exist
+      await sql`
+        CREATE TABLE budgets (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          amount DECIMAL(15, 2) NOT NULL,
+          start_date DATE NOT NULL,
+          description TEXT,
+          created_by VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP
+        )
+      `
+      console.log("Created budgets table")
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error checking/creating budgets table:", error)
+    return false
+  }
+}
+
+// Function to check if the status column exists in the budgets table
+async function checkStatusColumnExists() {
+  try {
+    const result = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'budgets' AND column_name = 'status'
+      ) as exists
+    `
+    return result[0]?.exists || false
+  } catch (error) {
+    console.error("Error checking status column:", error)
+    return true // Assume it exists if we can't check, to be safe
+  }
+}
+
+// Create a new budget - now handling the status column if it exists
 export async function createBudget(formData: FormData) {
   try {
+    // Ensure the budgets table exists
+    const tableExists = await ensureBudgetsTableExists()
+    if (!tableExists) {
+      return {
+        success: false,
+        error: "Failed to ensure budgets table exists. Please check database connection.",
+      }
+    }
+
     // Extract and validate data
     const name = formData.get("name") as string
-    const amount = Number.parseFloat(formData.get("amount") as string)
+    const amountStr = formData.get("amount") as string
     const creationDate = formData.get("creationDate") as string
     const description = (formData.get("description") as string) || ""
     const createdBy = formData.get("createdBy") as string
 
+    // Parse amount with better error handling
+    let amount: number
+    try {
+      // Handle both formatted strings (with commas) and regular numbers
+      amount =
+        typeof amountStr === "string" && amountStr.includes(",")
+          ? Number.parseFloat(amountStr.replace(/[^\d.-]/g, ""))
+          : Number.parseFloat(amountStr)
+
+      if (isNaN(amount)) {
+        throw new Error("Invalid amount format")
+      }
+    } catch (error) {
+      console.error("Error parsing amount:", error)
+      return {
+        success: false,
+        error: "Invalid amount format. Please enter a valid number.",
+      }
+    }
+
     // Validate data
-    const validatedData = budgetSchema.parse({
-      name,
-      amount,
-      creationDate,
-      description,
-      createdBy,
-    })
+    try {
+      budgetSchema.parse({
+        name,
+        amount,
+        creationDate,
+        description,
+        createdBy,
+      })
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const errorMessages = error.errors.map((err) => `${err.path.join(".")}: ${err.message}`).join(", ")
+        return {
+          success: false,
+          error: `Validation error: ${errorMessages}`,
+        }
+      }
+      throw error
+    }
 
     // Generate a unique ID
     const id = generateId("BDG")
 
-    // Insert into database - removed status field
-    await sql`
-      INSERT INTO budgets (
-        id, name, amount, start_date, 
-        description, created_by
-      ) VALUES (
-        ${id}, ${validatedData.name}, ${validatedData.amount}, 
-        ${formatDateForSQL(validatedData.creationDate)}, 
-        ${validatedData.description}, ${validatedData.createdBy}
-      )
-    `
+    // Format the date properly
+    const formattedDate = formatDateForSQL(creationDate)
+
+    // Check if the status column exists
+    const statusColumnExists = await checkStatusColumnExists()
+
+    // Log the data being inserted for debugging
+    console.log("Inserting budget:", {
+      id,
+      name,
+      amount,
+      startDate: formattedDate,
+      description,
+      createdBy,
+      statusColumnExists,
+    })
+
+    // Use a transaction to ensure atomicity
+    try {
+      // Begin transaction
+      await sql`BEGIN`
+
+      // Insert into database - with or without status field based on column existence
+      if (statusColumnExists) {
+        await sql`
+          INSERT INTO budgets (
+            id, name, amount, start_date, 
+            description, created_by, status
+          ) VALUES (
+            ${id}, ${name}, ${amount}, 
+            ${formattedDate}, 
+            ${description}, ${createdBy}, 'active'
+          )
+        `
+      } else {
+        await sql`
+          INSERT INTO budgets (
+            id, name, amount, start_date, 
+            description, created_by
+          ) VALUES (
+            ${id}, ${name}, ${amount}, 
+            ${formattedDate}, 
+            ${description}, ${createdBy}
+          )
+        `
+      }
+
+      // Commit transaction
+      await sql`COMMIT`
+    } catch (error) {
+      // Rollback on error
+      await sql`ROLLBACK`
+      console.error("SQL Error during budget creation:", error)
+
+      // Check for specific error types
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      if (errorMessage.includes("duplicate key")) {
+        return {
+          success: false,
+          error: "A budget with this ID already exists. Please try again.",
+        }
+      }
+
+      if (errorMessage.includes("violates not-null constraint")) {
+        return {
+          success: false,
+          error: "Missing required field. Please ensure all required fields are filled.",
+        }
+      }
+
+      throw error
+    }
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -126,7 +279,6 @@ export async function getBudgets() {
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     // Get all additional allocations in a single query
-    // Note: We're keeping the status='approved' filter for now since we haven't migrated this table yet
     const allocationsResult = await executeQueryWithRetry(
       () => sql<{ original_budget_id: string; total: number }[]>`
       SELECT original_budget_id, COALESCE(SUM(amount), 0) as total 

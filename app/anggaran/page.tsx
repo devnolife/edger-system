@@ -1,47 +1,22 @@
 "use client"
 
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-
-import { Separator } from "@/components/ui/separator"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { formatRupiah } from "@/lib/format-rupiah"
-import { CalendarIcon, Edit, Eye, Plus, Search, Trash } from "lucide-react"
-import { format } from "date-fns"
+import { Edit, Eye, Plus, Search, Trash } from "lucide-react"
 import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
-import { getBudgets, createBudget, getBudgetById, getBudgetSummary, type Budget } from "@/app/actions/budget-actions"
+import { getBudgets, getBudgetById, getBudgetSummary, type Budget, createBudget } from "@/app/actions/budget-actions"
 import { useToast } from "@/hooks/use-toast"
-import { LoadingButton } from "@/components/ui/loading-button"
 import { useSearchParams } from "next/navigation"
-// First, import the budget update hook near the other imports
 import { useBudgetUpdates } from "@/hooks/use-budget-updates"
-// Import the BudgetUpdateIndicator component at the top of the file
-import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
-// Also add the import for BudgetHistoryTab at the top of the file
-import { BudgetHistoryTab } from "@/components/budget-history-tab"
-// Add this import at the top of the file
 import { getExpensesByBudgetId } from "@/app/actions/expense-actions"
+import { CreateBudgetDialog } from "./create-budget-dialog"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
@@ -49,7 +24,6 @@ export default function Anggaran() {
   const searchParams = useSearchParams()
   const budgetIdParam = searchParams.get("budgetId")
   const [searchTerm, setSearchTerm] = useState("")
-  const [creationDate, setCreationDate] = useState<Date>(new Date())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
@@ -62,9 +36,7 @@ export default function Anggaran() {
     totalAvailable: 0,
   })
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
-  // First, let's add a refresh state variable near the other state variables
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  // Add these state variables after the other state declarations (around line 30)
   const [budgetExpenses, setBudgetExpenses] = useState<
     Array<{
       id: string
@@ -81,9 +53,9 @@ export default function Anggaran() {
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [creationDate, setCreationDate] = useState(new Date())
 
-  // Then, add the hook usage after the other state variables
-  // Add this after the other state variables
+  // Use the budget updates hook
   const { lastUpdate } = useBudgetUpdates((event) => {
     // Trigger a refresh when a budget update is received
     setRefreshTrigger((prev) => prev + 1)
@@ -102,8 +74,8 @@ export default function Anggaran() {
     }
   })
 
-  // Add a function to refresh budget data after the other state variables
-  const refreshBudgetData = async () => {
+  // Function to refresh budget data
+  const refreshBudgetData = useCallback(async () => {
     setIsLoading(true)
     try {
       // Fetch budgets
@@ -141,9 +113,9 @@ export default function Anggaran() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [selectedBudget, toast])
 
-  // Modify the useEffect to include refreshTrigger in the dependency array
+  // Fetch data on component mount and when refreshTrigger changes
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
@@ -178,7 +150,7 @@ export default function Anggaran() {
     }
 
     fetchData()
-  }, [toast, budgetIdParam, refreshTrigger]) // Add refreshTrigger to the dependency array
+  }, [toast, budgetIdParam, refreshTrigger])
 
   // Filter budgets based on search
   const filteredBudgets = budgets.filter((budget) => {
@@ -186,8 +158,7 @@ export default function Anggaran() {
     return matchesSearch
   })
 
-  // Add a visual indicator for budget updates
-  // Add this after the filteredBudgets definition
+  // Check if a budget was recently updated
   const isBudgetRecentlyUpdated = (budgetId: string) => {
     return lastUpdate && lastUpdate.budgetId === budgetId
   }
@@ -253,8 +224,7 @@ export default function Anggaran() {
     }
   }
 
-  // Modify the openBudgetDetails function to also fetch expenses
-  // Replace the existing openBudgetDetails function with this updated version
+  // Open budget details
   const openBudgetDetails = async (budget: Budget) => {
     setIsLoadingDetails(true)
     setSelectedBudget(budget) // Set initial data from the list
@@ -303,6 +273,11 @@ export default function Anggaran() {
     }
   }
 
+  // Handle budget creation success
+  const handleBudgetCreationSuccess = () => {
+    refreshBudgetData()
+  }
+
   const container = {
     hidden: { opacity: 0 },
     show: {
@@ -329,83 +304,22 @@ export default function Anggaran() {
           <p className="text-muted-foreground">Buat dan kelola anggaran untuk berbagai kebutuhan</p>
         </div>
         {canManageBudgets && (
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button className="rounded-full animated-gradient-button text-white">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Buat Anggaran Baru
-                </Button>
-              </motion.div>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] rounded-2xl">
-              <DialogHeader>
-                <DialogTitle className="text-xl font-display">Buat Anggaran Baru</DialogTitle>
-                <DialogDescription>Isi detail anggaran baru. Klik simpan setelah selesai.</DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="budget-name">Nama Anggaran</Label>
-                  <Input
-                    id="budget-name"
-                    placeholder="Masukkan nama anggaran"
-                    className="rounded-lg"
-                    value={budgetName}
-                    onChange={(e) => setBudgetName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Tanggal Pembuatan</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
-                        <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                        {creationDate ? format(creationDate, "PPP") : "Pilih tanggal"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0 rounded-xl" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={creationDate}
-                        onSelect={setCreationDate}
-                        initialFocus
-                        className="rounded-xl"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="amount">Jumlah Anggaran</Label>
-                  <RupiahInput id="amount" placeholder="0" className="rounded-lg" value={amount} onChange={setAmount} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Deskripsi</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Deskripsi anggaran dan tujuannya"
-                    className="rounded-lg"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" className="rounded-full" onClick={() => setIsDialogOpen(false)}>
-                  Batal
-                </Button>
-                <LoadingButton
-                  className="rounded-full animated-gradient-button text-white"
-                  onClick={handleCreateBudget}
-                  isLoading={isSubmitting}
-                  loadingText="Menyimpan..."
-                >
-                  Simpan Anggaran
-                </LoadingButton>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <Button className="rounded-full animated-gradient-button text-white" onClick={() => setIsDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Buat Anggaran Baru
+            </Button>
+          </motion.div>
         )}
       </motion.div>
+
+      {/* Create Budget Dialog */}
+      <CreateBudgetDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        onSuccess={refreshBudgetData}
+        userName={user?.name || "Unknown User"}
+      />
 
       {/* Search section */}
       <motion.div variants={item} className="flex flex-col gap-4 md:flex-row">
@@ -580,233 +494,7 @@ export default function Anggaran() {
         </Card>
       </motion.div>
 
-      {/* Budget Details Dialog */}
-      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="sm:max-w-[800px] rounded-2xl">
-          {selectedBudget && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-xl font-display">{selectedBudget.name}</DialogTitle>
-                <DialogDescription>Detail anggaran dan penggunaannya</DialogDescription>
-              </DialogHeader>
-
-              {isLoadingDetails ? (
-                <div className="flex flex-col items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mb-4"></div>
-                  <p className="text-muted-foreground">Memuat detail anggaran...</p>
-                </div>
-              ) : (
-                <Tabs defaultValue="overview" className="mt-4">
-                  <TabsList className="grid w-full grid-cols-4 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
-                    <TabsTrigger
-                      value="overview"
-                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                    >
-                      Ringkasan
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="expenses"
-                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                    >
-                      Pengeluaran
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="allocations"
-                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                    >
-                      Alokasi Tambahan
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="history"
-                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                    >
-                      Riwayat Penggunaan
-                    </TabsTrigger>
-                  </TabsList>
-
-                  {/* Overview Tab */}
-                  <TabsContent value="overview" className="space-y-4 mt-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">ID Anggaran</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-lg font-medium">{selectedBudget.id}</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">Tanggal Pembuatan</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-lg font-medium">{selectedBudget.startDate}</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">Dibuat Oleh</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-lg font-medium">{selectedBudget.createdBy}</p>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Ringkasan Keuangan</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-6">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Anggaran Awal:</span>
-                            <span className="font-medium">{formatRupiah(selectedBudget.amount)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Total Terpakai:</span>
-                            <div className="text-right">
-                              <span className="font-medium">{formatRupiah(selectedBudget.spentAmount)}</span>
-                              <BudgetUpdateIndicator
-                                budgetId={selectedBudget.id}
-                                lastUpdateBudgetId={lastUpdate?.budgetId}
-                                expenseAmount={lastUpdate?.expenseAmount || 0}
-                                className="mt-1"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Alokasi Tambahan:</span>
-                            <span className="font-medium">{formatRupiah(selectedBudget.additionalAmount || 0)}</span>
-                          </div>
-                          <Separator className="my-2" />
-                          <div className="flex justify-between font-bold">
-                            <span>Sisa Anggaran:</span>
-                            <div className="text-right">
-                              <span>{formatRupiah(selectedBudget.availableAmount)}</span>
-                              {lastUpdate && lastUpdate.budgetId === selectedBudget.id && (
-                                <div className="text-xs text-green-600 font-medium mt-1">Baru diperbarui</div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span>Penggunaan Anggaran</span>
-                              <span>{((selectedBudget.spentAmount / selectedBudget.amount) * 100).toFixed(0)}%</span>
-                            </div>
-                            <Progress
-                              value={(selectedBudget.spentAmount / selectedBudget.amount) * 100}
-                              className="h-3 rounded-full"
-                            />
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* Expenses Tab */}
-                  <TabsContent value="expenses" className="mt-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Pengeluaran Terkait</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        {isLoadingExpenses ? (
-                          <div className="flex justify-center py-8">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                          </div>
-                        ) : budgetExpenses.length === 0 ? (
-                          <div className="text-center py-4">
-                            <p className="text-muted-foreground mb-4">Belum ada pengeluaran untuk anggaran ini.</p>
-                            <Button className="rounded-full" asChild>
-                              <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Tambah Pengeluaran</a>
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            <div className="space-y-4">
-                              {budgetExpenses.map((expense) => (
-                                <div
-                                  key={expense.id}
-                                  className="flex justify-between items-center p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                                >
-                                  <div>
-                                    <h4 className="font-medium">{expense.description}</h4>
-                                    <div className="flex gap-2 text-sm text-muted-foreground">
-                                      <span>{expense.date}</span>
-                                      <span>•</span>
-                                      <span>Oleh: {expense.submittedBy}</span>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <div className="font-semibold">{formatRupiah(expense.amount)}</div>
-                                    <Button variant="ghost" size="sm" className="mt-1 h-8 rounded-full" asChild>
-                                      <a href={`/pengeluaran?expense=${expense.id}`}>
-                                        <Eye className="h-3.5 w-3.5 mr-1" />
-                                        Detail
-                                      </a>
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="flex justify-between items-center pt-4 border-t">
-                              <div>
-                                <p className="text-sm text-muted-foreground">
-                                  Total {budgetExpenses.length} pengeluaran
-                                </p>
-                                <p className="font-medium">
-                                  Total:{" "}
-                                  {formatRupiah(budgetExpenses.reduce((sum, expense) => sum + expense.amount, 0))}
-                                </p>
-                              </div>
-                              <Button className="rounded-full" asChild>
-                                <a href={`/pengeluaran?budget=${selectedBudget.id}`}>Lihat Semua Pengeluaran</a>
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* Allocations Tab */}
-                  <TabsContent value="allocations" className="mt-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Alokasi Tambahan</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-muted-foreground mb-4">
-                          Daftar alokasi tambahan untuk anggaran ini akan ditampilkan di sini.
-                        </p>
-                        <Button className="rounded-full" asChild>
-                          <a href={`/anggaran-tambahan?budget=${selectedBudget.id}`}>Lihat Semua Alokasi</a>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* History Tab */}
-                  <TabsContent value="history" className="mt-4">
-                    {selectedBudget && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Riwayat Penggunaan Anggaran</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <BudgetHistoryTab budgetId={selectedBudget.id} />
-                        </CardContent>
-                      </Card>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Budget Details Dialog will be handled by a separate component */}
     </motion.div>
   )
 }

@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { CalendarIcon, Eye, AlertTriangle, Plus, Search } from "lucide-react"
+import { CalendarIcon, Eye, AlertTriangle, Plus, Search, ImageIcon } from "lucide-react"
 import { format } from "date-fns"
 import { motion, AnimatePresence } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -41,6 +41,8 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { LoadingOverlay } from "@/components/ui/loading-overlay"
 import { emitBudgetUpdate, useBudgetUpdates } from "@/hooks/use-budget-updates"
 import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
+import { ImageUpload } from "@/components/image-upload"
+import Image from "next/image"
 
 export default function Pengeluaran() {
   const { user } = useUserRole()
@@ -68,6 +70,7 @@ export default function Pengeluaran() {
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
+  const [imageUrl, setImageUrl] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -306,10 +309,10 @@ export default function Pengeluaran() {
   // Handle expense creation
   const handleCreateExpense = async () => {
     // Validate required fields
-    if (!budgetId || !description || !amount || !expenseDate) {
+    if (!budgetId || !description || !amount || !expenseDate || !imageUrl) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in all required fields including the receipt image",
         variant: "destructive",
       })
       return
@@ -328,6 +331,7 @@ export default function Pengeluaran() {
       formData.append("date", expenseDate.toISOString().split("T")[0])
       formData.append("submittedBy", user?.name || "Unknown User")
       formData.append("notes", notes)
+      formData.append("imageUrl", imageUrl) // Add the image URL
 
       // Call the server action
       const result = await createExpense(formData)
@@ -376,6 +380,7 @@ export default function Pengeluaran() {
         setExpenseDate(new Date())
         setExceedsBudget(false)
         setNeedsAllocation(false)
+        setImageUrl("") // Reset the image URL
         setIsDialogOpen(false)
       } else {
         // Show error message
@@ -592,6 +597,10 @@ export default function Pengeluaran() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <ImageUpload onImageUploaded={(url) => setImageUrl(url)} className="mt-4" />
+              </div>
+
               <AnimatePresence>
                 {exceedsBudget && (
                   <motion.div
@@ -691,6 +700,7 @@ export default function Pengeluaran() {
                   <TableHead className="font-display">Deskripsi</TableHead>
                   <TableHead className="font-display">Anggaran</TableHead>
                   <TableHead className="font-display">Tanggal</TableHead>
+                  <TableHead className="font-display">Bukti</TableHead>
                   <TableHead className="text-right font-display">Jumlah</TableHead>
                   <TableHead className="text-right font-display">Tindakan</TableHead>
                 </TableRow>
@@ -729,6 +739,25 @@ export default function Pengeluaran() {
                       <TableCell>{expense.description}</TableCell>
                       <TableCell>{expense.budgetName}</TableCell>
                       <TableCell>{expense.date}</TableCell>
+                      <TableCell>
+                        {expense.imageUrl ? (
+                          <div
+                            className="relative h-10 w-10 cursor-pointer"
+                            onClick={() => openExpenseDetails(expense)}
+                          >
+                            <Image
+                              src={expense.imageUrl || "/placeholder.svg"}
+                              alt="Receipt"
+                              fill
+                              className="object-cover rounded-md"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-10 w-10 bg-muted flex items-center justify-center rounded-md">
+                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-medium">{formatRupiah(expense.amount)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -807,6 +836,29 @@ export default function Pengeluaran() {
                     </CardContent>
                   </Card>
                 </div>
+
+                {selectedExpense?.imageUrl && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Bukti Pengeluaran</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="relative aspect-video w-full">
+                        <Image
+                          src={selectedExpense.imageUrl || "/placeholder.svg"}
+                          alt="Receipt"
+                          fill
+                          className="object-contain rounded-md"
+                        />
+                      </div>
+                      <Button variant="outline" className="mt-4 rounded-full" asChild>
+                        <a href={selectedExpense.imageUrl} target="_blank" rel="noopener noreferrer">
+                          Lihat Gambar Asli
+                        </a>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {selectedExpense.notes && (
                   <Card>

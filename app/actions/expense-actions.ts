@@ -10,10 +10,11 @@ import { updateBudgetCalculations, trackBudgetUsage } from "@/lib/budget-update-
 // Remove this line:
 // export type ExpenseStatus = "pending" | "approved" | "rejected"
 
-// Update the Expense interface to remove the status field:
+// Update the Expense interface to include imageUrl
 export interface Expense {
   id: string
   budgetId: string
+  budgetName?: string
   description: string
   amount: number
   date: string
@@ -23,9 +24,10 @@ export interface Expense {
   approvedAt?: string
   notes?: string
   additionalAllocationId?: string
+  imageUrl?: string // Add this field
 }
 
-// Updated validation schema without status field
+// Update the validation schema to require imageUrl
 const expenseSchema = z.object({
   budgetId: z.string().min(1, "Budget ID is required"),
   description: z.string().min(3, "Description must be at least 3 characters"),
@@ -33,9 +35,10 @@ const expenseSchema = z.object({
   date: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
   submittedBy: z.string().min(1, "Submitter is required"),
   notes: z.string().optional(),
+  imageUrl: z.string().min(1, "Receipt image is required"), // Add this field
 })
 
-// Refactored createExpense function to directly update budget calculations
+// Update the createExpense function to handle image uploads
 export async function createExpense(formData: FormData) {
   try {
     // Extract and validate data
@@ -50,6 +53,7 @@ export async function createExpense(formData: FormData) {
     const date = formData.get("date") as string
     const submittedBy = formData.get("submittedBy") as string
     const notes = (formData.get("notes") as string) || ""
+    const imageUrl = formData.get("imageUrl") as string // Get the image URL
 
     // Validate data
     const validatedData = expenseSchema.parse({
@@ -59,6 +63,7 @@ export async function createExpense(formData: FormData) {
       date,
       submittedBy,
       notes,
+      imageUrl, // Include imageUrl in validation
     })
 
     // Generate a unique ID
@@ -105,11 +110,11 @@ export async function createExpense(formData: FormData) {
       `
     }
 
-    // Insert the expense record - without status field
+    // Insert the expense record - now including imageUrl
     await sql`
       INSERT INTO expenses (
         id, budget_id, description, amount, date, 
-        submitted_by, notes, additional_allocation_id
+        submitted_by, notes, additional_allocation_id, image_url
       ) VALUES (
         ${id}, 
         ${validatedData.budgetId}, 
@@ -118,7 +123,8 @@ export async function createExpense(formData: FormData) {
         ${formatDateForSQL(validatedData.date)}, 
         ${validatedData.submittedBy}, 
         ${validatedData.notes},
-        ${additionalAllocationId}
+        ${additionalAllocationId},
+        ${validatedData.imageUrl} // Add the image URL
       )
     `
 
@@ -153,7 +159,7 @@ export async function createExpense(formData: FormData) {
 
 // Remove the commented-out updateExpenseStatus function entirely since it's no longer needed.
 
-// Get all expenses - updated to remove status filtering
+// Update the getExpenses function to include imageUrl
 export async function getExpenses() {
   try {
     // Get all expenses with budget name
@@ -169,6 +175,7 @@ export async function getExpenses() {
         submitted_at: string
         notes: string | null
         additional_allocation_id: string | null
+        image_url: string | null // Add this field
       }[]
     >`
       SELECT 
@@ -192,6 +199,7 @@ export async function getExpenses() {
         submittedAt: expense.submitted_at,
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
+        imageUrl: expense.image_url || undefined, // Include imageUrl in the response
       })),
     }
   } catch (error) {
@@ -203,7 +211,7 @@ export async function getExpenses() {
   }
 }
 
-// Get a single expense by ID - updated to remove status references
+// Update the getExpenseById function to include imageUrl
 export async function getExpenseById(id: string) {
   try {
     // Get the expense with budget name
@@ -219,6 +227,7 @@ export async function getExpenseById(id: string) {
         submitted_at: string
         notes: string | null
         additional_allocation_id: string | null
+        image_url: string | null // Add this field
       }[]
     >`
       SELECT 
@@ -275,6 +284,7 @@ export async function getExpenseById(id: string) {
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
         additionalAllocation,
+        imageUrl: expense.image_url || undefined, // Include imageUrl in the response
       },
     }
   } catch (error) {
@@ -286,102 +296,87 @@ export async function getExpenseById(id: string) {
   }
 }
 
-// Get expense summary - updated to remove status filtering
-export async function getExpenseSummary() {
-  // Implement retry logic with exponential backoff
-  const maxRetries = 3
-  let retryCount = 0
-  let lastError: any = null
-
-  while (retryCount < maxRetries) {
-    try {
-      // Get total expense amount
-      const totalResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total FROM expenses
-      `
-      const total = Number.parseFloat(totalResult[0]?.total || "0")
-
-      // Get expenses with additional allocations
-      const withAllocationResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE additional_allocation_id IS NOT NULL
-      `
-      const withAllocation = Number.parseFloat(withAllocationResult[0]?.total || "0")
-
-      // Get expenses by month
-      const currentMonth = new Date().getMonth() + 1 // JavaScript months are 0-indexed
-      const currentYear = new Date().getFullYear()
-      const monthlyResult = await sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE EXTRACT(MONTH FROM date::date) = ${currentMonth}
-        AND EXTRACT(YEAR FROM date::date) = ${currentYear}
-      `
-      const monthly = Number.parseFloat(monthlyResult[0]?.total || "0")
-
-      return {
-        success: true,
-        summary: {
-          total,
-          monthly,
-          withAllocation,
-        },
-      }
-    } catch (error) {
-      lastError = error
-
-      // Check if it's a rate limit error
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      if (errorMessage.includes("Too Many")) {
-        console.log(`Rate limit hit, retrying (${retryCount + 1}/${maxRetries})...`)
-        // Exponential backoff: wait longer between each retry
-        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, retryCount) * 1000))
-        retryCount++
-      } else {
-        // If it's not a rate limit error, don't retry
-        break
-      }
-    }
-  }
-
-  console.error("Error fetching expense summary:", lastError)
-  return {
-    success: false,
-    error: lastError instanceof Error ? lastError.message : "An unknown error occurred",
-  }
-}
-
-// Get expenses by budget ID - updated to remove status filtering
+// New function to get expenses by budget ID
 export async function getExpensesByBudgetId(budgetId: string) {
   try {
     const expenses = await sql<
       {
         id: string
+        budget_id: string
+        budget_name: string
         description: string
         amount: number
         date: string
         submitted_by: string
+        submitted_at: string
+        notes: string | null
+        additional_allocation_id: string | null
+        image_url: string | null
       }[]
     >`
-      SELECT id, description, amount, date, submitted_by
-      FROM expenses
-      WHERE budget_id = ${budgetId}
-      ORDER BY date DESC
+      SELECT 
+        e.*, 
+        b.name as budget_name
+      FROM expenses e
+      JOIN budgets b ON e.budget_id = b.id
+      WHERE e.budget_id = ${budgetId}
+      ORDER BY e.submitted_at DESC
     `
 
     return {
       success: true,
       expenses: expenses.map((expense) => ({
         id: expense.id,
+        budgetId: expense.budget_id,
+        budgetName: expense.budget_name,
         description: expense.description,
         amount: expense.amount,
         date: expense.date,
         submittedBy: expense.submitted_by,
+        submittedAt: expense.submitted_at,
+        notes: expense.notes || undefined,
+        additionalAllocationId: expense.additional_allocation_id || undefined,
+        imageUrl: expense.image_url || undefined,
       })),
     }
   } catch (error) {
     console.error("Error fetching expenses by budget ID:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
+  }
+}
+
+// New function to get expense summary
+export async function getExpenseSummary() {
+  try {
+    const result = await sql<
+      {
+        total: number
+        approved: number
+        pending: number
+        with_allocation: number
+      }[]
+    >`
+      SELECT 
+        COALESCE(SUM(amount), 0) AS total,
+        COALESCE(SUM(CASE WHEN additional_allocation_id IS NULL THEN amount ELSE 0 END), 0) AS approved,
+        0 AS pending,
+        COALESCE(SUM(CASE WHEN additional_allocation_id IS NOT NULL THEN amount ELSE 0 END), 0) AS with_allocation
+      FROM expenses
+    `
+
+    const summary = {
+      total: Number(result[0]?.total || 0),
+      approved: Number(result[0]?.approved || 0),
+      pending: Number(result[0]?.pending || 0),
+      withAllocation: Number(result[0]?.with_allocation || 0),
+    }
+
+    return { success: true, summary }
+  } catch (error) {
+    console.error("Error fetching expense summary:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",

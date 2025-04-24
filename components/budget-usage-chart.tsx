@@ -46,7 +46,14 @@ export function BudgetUsageChart({
 
   // Calculate budget usage percentage
   const usagePercentage = budgetAmount > 0 ? (summary.totalAmount / budgetAmount) * 100 : 0
-  const progressColor = usagePercentage > 90 ? "bg-red-500" : usagePercentage > 70 ? "bg-yellow-500" : "bg-green-600"
+
+  // Determine progress color based on percentage using new colors
+  const progressColor =
+    usagePercentage > 90
+      ? "bg-[#117554]" // Deep teal for critical
+      : usagePercentage > 70
+        ? "bg-[#FFEB00]" // Bright yellow for warning
+        : "bg-[#6EC207]" // Vibrant green for good
 
   // Format date for display based on time frame
   const formatDate = (dateStr: string) => {
@@ -173,7 +180,7 @@ export function BudgetUsageChart({
                     <Bar
                       dataKey="amount"
                       name="Pengeluaran"
-                      fill="#3674B5"
+                      fill="#4379F2" // Using bright blue
                       radius={[4, 4, 0, 0]}
                       animationDuration={1000}
                     />
@@ -206,7 +213,7 @@ export function BudgetUsageChart({
                       type="monotone"
                       dataKey="amount"
                       name="Pengeluaran"
-                      stroke="#3674B5"
+                      stroke="#6EC207" // Using vibrant green
                       strokeWidth={2}
                       dot={{ r: 4 }}
                       activeDot={{ r: 6 }}
@@ -241,7 +248,7 @@ export function BudgetUsageChart({
                       type="monotone"
                       dataKey="cumulativeAmount"
                       name="Total Kumulatif"
-                      stroke="#578FCA"
+                      stroke="#117554" // Using deep teal
                       strokeWidth={2}
                       dot={{ r: 4 }}
                       activeDot={{ r: 6 }}

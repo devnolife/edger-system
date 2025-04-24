@@ -32,15 +32,24 @@ import {
   getAdditionalAllocations,
   createAdditionalAllocation,
   getAdditionalAllocationById,
-  updateAllocationStatus,
   getAllocationSummary,
   type AdditionalAllocation,
-  type AllocationStatus,
 } from "@/app/actions/allocation-actions"
 import { getBudgets } from "@/app/actions/budget-actions"
 import { getExpenseById } from "@/app/actions/expense-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { LoadingOverlay } from "@/components/ui/loading-overlay"
+import { CheckCircle2, ArrowRight } from "lucide-react"
+import {
+  Timeline,
+  TimelineItem,
+  TimelineConnector,
+  TimelineContent,
+  TimelineDot,
+  TimelineHeader,
+  TimelineSeparator,
+  TimelineTitle,
+} from "@/components/ui/timeline"
 
 export default function AnggaranTambahan() {
   const { role, user } = useUserRole()
@@ -74,8 +83,6 @@ export default function AnggaranTambahan() {
   } | null>(null)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isApproving, setIsApproving] = useState(false)
-  const [isRejecting, setIsRejecting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Fetch allocations, budgets, and summary on component mount
@@ -137,7 +144,7 @@ export default function AnggaranTambahan() {
     fetchData()
   }, [toast, budgetIdParam, expenseIdParam])
 
-  // Filter allocations based on tab, search, status, and department
+  // Filter allocations based on search and budget
   const filteredAllocations = allocations.filter((allocation) => {
     const matchesSearch =
       allocation.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -226,6 +233,7 @@ export default function AnggaranTambahan() {
   // Open allocation details
   const openAllocationDetails = async (allocation: AdditionalAllocation) => {
     try {
+      setIsProcessing(true)
       const result = await getAdditionalAllocationById(allocation.id)
       if (result.success) {
         setSelectedAllocation(result.allocation)
@@ -244,57 +252,7 @@ export default function AnggaranTambahan() {
         description: "An unexpected error occurred",
         variant: "destructive",
       })
-    }
-  }
-
-  // Handle allocation approval or rejection
-  const handleUpdateStatus = async (id: string, status: AllocationStatus) => {
-    try {
-      if (status === "approved") {
-        setIsApproving(true)
-      } else {
-        setIsRejecting(true)
-      }
-      setIsProcessing(true)
-
-      const result = await updateAllocationStatus(id, status, user?.name || "Unknown User")
-      if (result.success) {
-        toast({
-          title: "Success",
-          description: `Allocation ${status === "approved" ? "approved" : "rejected"} successfully`,
-        })
-
-        // Refresh allocations
-        const allocationsResult = await getAdditionalAllocations()
-        if (allocationsResult.success) {
-          setAllocations(allocationsResult.allocations)
-        }
-
-        // Refresh summary
-        const summaryResult = await getAllocationSummary()
-        if (summaryResult.success) {
-          setSummary(summaryResult.summary)
-        }
-
-        // Close details dialog
-        setIsDetailsOpen(false)
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || `Failed to ${status} allocation`,
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error(`Error ${status} allocation:`, error)
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
-      })
     } finally {
-      setIsApproving(false)
-      setIsRejecting(false)
       setIsProcessing(false)
     }
   }
@@ -324,7 +282,7 @@ export default function AnggaranTambahan() {
           <h2 className="text-3xl font-display font-bold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Alokasi Anggaran Tambahan
           </h2>
-          <p className="text-muted-foreground">Kelola permintaan alokasi anggaran tambahan</p>
+          <p className="text-muted-foreground">Kelola alokasi anggaran tambahan</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -492,7 +450,7 @@ export default function AnggaranTambahan() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <div className="flex justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -501,7 +459,7 @@ export default function AnggaranTambahan() {
                   </TableRow>
                 ) : filteredAllocations.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <p className="text-muted-foreground">Tidak ada data alokasi yang ditemukan</p>
                     </TableCell>
                   </TableRow>
@@ -620,26 +578,85 @@ export default function AnggaranTambahan() {
                     <CardContent>
                       <div className="space-y-4">
                         <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Diminta Oleh</h4>
+                          <h4 className="text-sm font-medium text-muted-foreground">Dibuat Oleh</h4>
                           <p>{selectedAllocation.requestedBy}</p>
                         </div>
                         <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Tanggal Pengajuan</h4>
+                          <h4 className="text-sm font-medium text-muted-foreground">Tanggal Pembuatan</h4>
                           <p>{new Date(selectedAllocation.requestedAt).toLocaleString("id-ID")}</p>
                         </div>
-                        {selectedAllocation.approvedBy && (
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">Disetujui/Ditolak Oleh</h4>
-                            <p>{selectedAllocation.approvedBy}</p>
-                          </div>
-                        )}
-                        {selectedAllocation.approvedAt && (
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">Tanggal Persetujuan/Penolakan</h4>
-                            <p>{new Date(selectedAllocation.approvedAt).toLocaleString("id-ID")}</p>
-                          </div>
-                        )}
+                        <div>
+                          <h4 className="text-sm font-medium text-muted-foreground">Diproses Pada</h4>
+                          <p>
+                            {new Date(selectedAllocation.approvedAt || selectedAllocation.requestedAt).toLocaleString(
+                              "id-ID",
+                            )}
+                          </p>
+                        </div>
                       </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Timeline</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Timeline>
+                        <TimelineItem>
+                          <TimelineSeparator>
+                            <TimelineDot color="green">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </TimelineDot>
+                            <TimelineConnector />
+                          </TimelineSeparator>
+                          <TimelineContent>
+                            <TimelineHeader>
+                              <TimelineTitle>Alokasi Dibuat</TimelineTitle>
+                            </TimelineHeader>
+                            <p className="text-sm text-muted-foreground">
+                              Oleh {selectedAllocation.requestedBy} pada{" "}
+                              {new Date(selectedAllocation.requestedAt).toLocaleString("id-ID")}
+                            </p>
+                          </TimelineContent>
+                        </TimelineItem>
+
+                        <TimelineItem>
+                          <TimelineSeparator>
+                            <TimelineDot color="green">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </TimelineDot>
+                          </TimelineSeparator>
+                          <TimelineContent>
+                            <TimelineHeader>
+                              <TimelineTitle>Alokasi Diproses</TimelineTitle>
+                            </TimelineHeader>
+                            <p className="text-sm text-muted-foreground">
+                              Diproses secara otomatis pada{" "}
+                              {new Date(selectedAllocation.approvedAt || selectedAllocation.requestedAt).toLocaleString(
+                                "id-ID",
+                              )}
+                            </p>
+                          </TimelineContent>
+                        </TimelineItem>
+
+                        {selectedAllocation.relatedExpenseId && (
+                          <TimelineItem>
+                            <TimelineSeparator>
+                              <TimelineDot color="purple">
+                                <ArrowRight className="h-4 w-4" />
+                              </TimelineDot>
+                            </TimelineSeparator>
+                            <TimelineContent>
+                              <TimelineHeader>
+                                <TimelineTitle>Terhubung dengan Pengeluaran</TimelineTitle>
+                              </TimelineHeader>
+                              <p className="text-sm text-muted-foreground">
+                                Alokasi ini terhubung dengan pengeluaran {selectedAllocation.relatedExpenseId}
+                              </p>
+                            </TimelineContent>
+                          </TimelineItem>
+                        )}
+                      </Timeline>
                     </CardContent>
                   </Card>
                 </TabsContent>
@@ -687,7 +704,10 @@ export default function AnggaranTambahan() {
         </DialogContent>
       </Dialog>
       {/* Add the loading overlay */}
-      <LoadingOverlay isLoading={isProcessing} text="Memproses permintaan..." />
+      <LoadingOverlay
+        isLoading={isProcessing}
+        text={isSubmitting ? "Menyimpan alokasi baru..." : "Memproses permintaan..."}
+      />
     </motion.div>
   )
 }

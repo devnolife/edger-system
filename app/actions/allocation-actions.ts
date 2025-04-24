@@ -4,9 +4,7 @@ import { sql, generateId, formatDateForSQL, executeQueryWithRetry } from "@/lib/
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-// Define types
-export type AllocationStatus = "pending" | "approved" | "rejected"
-
+// Define types - removed AllocationStatus type since it's no longer needed
 export interface AdditionalAllocation {
   id: string
   originalBudgetId: string
@@ -36,25 +34,7 @@ const allocationSchema = z.object({
   relatedExpenseId: z.string().optional(),
 })
 
-// Function to execute SQL queries with retry logic
-// async function executeQueryWithRetry<T>(query: () => Promise<T>, maxRetries: number = 3): Promise<T> {
-//   let retries = 0;
-//   while (true) {
-//     try {
-//       return await query();
-//     } catch (error: any) {
-//       if (retries < maxRetries && error.message.includes("rate limit")) {
-//         retries++;
-//         console.log(`Rate limit error. Retrying in ${retries * 5} seconds...`);
-//         await new Promise(resolve => setTimeout(resolve, retries * 5000)); // Exponential backoff
-//       } else {
-//         throw error; // Re-throw the error if it's not a rate limit error or max retries reached
-//       }
-//     }
-//   }
-// }
-
-// Create a new additional allocation
+// Create a new additional allocation - removed status field
 export async function createAdditionalAllocation(formData: FormData) {
   try {
     // Extract and validate data
@@ -81,11 +61,13 @@ export async function createAdditionalAllocation(formData: FormData) {
     const id = generateId("ADD")
 
     // Insert into database - without status field
+    // All allocations are automatically approved
     await executeQueryWithRetry(
       () => sql`
       INSERT INTO additional_allocations (
         id, original_budget_id, description, reason, amount, 
-        request_date, requested_by, related_expense_id
+        request_date, requested_by, related_expense_id,
+        approved_by, approved_at
       ) VALUES (
         ${id}, 
         ${validatedData.originalBudgetId}, 
@@ -94,7 +76,9 @@ export async function createAdditionalAllocation(formData: FormData) {
         ${validatedData.amount}, 
         ${formatDateForSQL(validatedData.requestDate)}, 
         ${validatedData.requestedBy},
-        ${validatedData.relatedExpenseId}
+        ${validatedData.relatedExpenseId},
+        ${validatedData.requestedBy},
+        CURRENT_TIMESTAMP
       )
     `,
     )
@@ -112,6 +96,8 @@ export async function createAdditionalAllocation(formData: FormData) {
 
     // Revalidate the allocations page to reflect the changes
     revalidatePath("/anggaran-tambahan")
+    // Also revalidate the budget page to reflect the updated budget amounts
+    revalidatePath("/anggaran")
 
     return { success: true, id }
   } catch (error) {
@@ -123,7 +109,7 @@ export async function createAdditionalAllocation(formData: FormData) {
   }
 }
 
-// Get all additional allocations
+// Get all additional allocations - removed status filtering
 export async function getAdditionalAllocations() {
   try {
     // Use executeQueryWithRetry to handle rate limiting
@@ -223,7 +209,7 @@ export async function getAdditionalAllocations() {
   }
 }
 
-// Get a single additional allocation by ID
+// Get a single additional allocation by ID - removed status references
 export async function getAdditionalAllocationById(id: string) {
   try {
     // Use executeQueryWithRetry to handle rate limiting
@@ -334,7 +320,7 @@ export async function getAdditionalAllocationById(id: string) {
   }
 }
 
-// Get allocation summary
+// Get allocation summary - removed status filtering
 export async function getAllocationSummary() {
   try {
     // Use executeQueryWithRetry to handle rate limiting
@@ -358,13 +344,5 @@ export async function getAllocationSummary() {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",
     }
-  }
-}
-
-// Dummy function for backward compatibility
-export async function updateAllocationStatus(id: string, status: AllocationStatus, approvedBy: string) {
-  return {
-    success: false,
-    error: "Status column has been removed from the additional_allocations table",
   }
 }
