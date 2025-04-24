@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RupiahInput } from "@/components/ui/rupiah-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -22,13 +22,33 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { CalendarIcon, Eye, AlertTriangle, Plus, Search, ImageIcon } from "lucide-react"
-import { format } from "date-fns"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  CalendarIcon,
+  Eye,
+  AlertTriangle,
+  Plus,
+  Search,
+  ImageIcon,
+  CalendarPlus2Icon as CalendarIcon2,
+  Filter,
+  X,
+  Download,
+  FileText,
+  User,
+  Wallet,
+  Receipt,
+  Info,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useToast } from "@/hooks/use-toast"
 import { useSearchParams } from "next/navigation"
 import { formatRupiah, parseRupiah } from "@/lib/format-rupiah"
+import { formatDate, formatDateRange } from "@/lib/format-date"
 import {
   getExpenses,
   createExpense,
@@ -44,17 +64,38 @@ import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
 import { ImageUpload } from "@/components/image-upload"
 import Image from "next/image"
 
+// Type for sorting options
+type SortField = "date" | "amount" | "description" | "budgetName"
+type SortDirection = "asc" | "desc"
+
 export default function Pengeluaran() {
   const { user } = useUserRole()
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const budgetIdParam = searchParams.get("budget")
+  const expenseIdParam = searchParams.get("expense")
 
+  // State for search and filters
   const [searchTerm, setSearchTerm] = useState("")
+  const [filterBudgetId, setFilterBudgetId] = useState(budgetIdParam || "")
+  const [filterDateRange, setFilterDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: undefined,
+    to: undefined,
+  })
+  const [showFilters, setShowFilters] = useState(false)
+
+  // State for sorting
+  const [sortField, setSortField] = useState<SortField>("date")
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+
+  // State for expense form
   const [expenseDate, setExpenseDate] = useState<Date>(new Date())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState("details")
+
+  // Loading states
   const [isLoading, setIsLoading] = useState(true)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [budgets, setBudgets] = useState<{ id: string; name: string }[]>([])
@@ -184,6 +225,7 @@ export default function Pengeluaran() {
                 spentAmount: Number(budget.spentAmount),
               })
               setBudgetId(budgetIdParam)
+              setFilterBudgetId(budgetIdParam)
 
               // Calculate budget usage percentage
               const percentage = (Number(budget.spentAmount) / Number(budget.amount)) * 100
@@ -205,6 +247,16 @@ export default function Pengeluaran() {
             withAllocation: Number(summaryResult.summary.withAllocation),
           })
         }
+
+        // If there's an expense ID in the URL, open its details
+        if (expenseIdParam) {
+          await new Promise((resolve) => setTimeout(resolve, 300))
+          const result = await getExpenseById(expenseIdParam)
+          if (result.success) {
+            setSelectedExpense(result.expense)
+            setIsDetailsOpen(true)
+          }
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         toast({
@@ -218,19 +270,61 @@ export default function Pengeluaran() {
     }
 
     fetchData()
-  }, [toast, budgetIdParam])
+  }, [toast, budgetIdParam, expenseIdParam])
 
-  // Filter expenses based on search and budget
-  const filteredExpenses = expenses.filter((expense) => {
-    const matchesSearch =
-      expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      expense.id.includes(searchTerm) ||
-      expense.budgetName.toLowerCase().includes(searchTerm.toLowerCase())
+  // Handle sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction if same field
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+    } else {
+      // Set new field and default to descending
+      setSortField(field)
+      setSortDirection("desc")
+    }
+  }
 
-    const matchesBudget = !budgetIdParam || expense.budgetId === budgetIdParam
+  // Filter and sort expenses
+  const filteredAndSortedExpenses = useMemo(() => {
+    // First filter the expenses
+    const result = expenses.filter((expense) => {
+      const matchesSearch =
+        expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        expense.id.includes(searchTerm) ||
+        expense.budgetName?.toLowerCase().includes(searchTerm.toLowerCase())
 
-    return matchesSearch && matchesBudget
-  })
+      const matchesBudget = !filterBudgetId || expense.budgetId === filterBudgetId
+
+      // Date range filtering
+      const expenseDate = new Date(expense.date)
+      const matchesDateFrom = !filterDateRange.from || expenseDate >= filterDateRange.from
+      const matchesDateTo = !filterDateRange.to || expenseDate <= filterDateRange.to
+
+      return matchesSearch && matchesBudget && matchesDateFrom && matchesDateTo
+    })
+
+    // Then sort the filtered expenses
+    return result.sort((a, b) => {
+      let comparison = 0
+
+      switch (sortField) {
+        case "date":
+          comparison = new Date(a.date).getTime() - new Date(b.date).getTime()
+          break
+        case "amount":
+          comparison = a.amount - b.amount
+          break
+        case "description":
+          comparison = a.description.localeCompare(b.description)
+          break
+        case "budgetName":
+          comparison = (a.budgetName || "").localeCompare(b.budgetName || "")
+          break
+      }
+
+      return sortDirection === "asc" ? comparison : -comparison
+    })
+  }, [expenses, searchTerm, filterBudgetId, filterDateRange, sortField, sortDirection])
 
   // Handle budget selection
   const handleBudgetChange = async (value: string) => {
@@ -412,6 +506,7 @@ export default function Pengeluaran() {
       if (result.success) {
         setSelectedExpense(result.expense)
         setIsDetailsOpen(true)
+        setActiveTab("details")
       } else {
         toast({
           title: "Error",
@@ -429,6 +524,13 @@ export default function Pengeluaran() {
     } finally {
       setIsProcessing(false)
     }
+  }
+
+  // Reset all filters
+  const resetFilters = () => {
+    setSearchTerm("")
+    setFilterBudgetId("")
+    setFilterDateRange({ from: undefined, to: undefined })
   }
 
   const container = {
@@ -570,14 +672,14 @@ export default function Pengeluaran() {
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
                         <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                        {expenseDate ? format(expenseDate, "PPP") : "Pilih tanggal"}
+                        {expenseDate ? formatDate(expenseDate) : "Pilih tanggal"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 rounded-xl" align="start">
                       <Calendar
                         mode="single"
                         selected={expenseDate}
-                        onSelect={setExpenseDate}
+                        onSelect={(date) => date && setExpenseDate(date)}
                         initialFocus
                         className="rounded-xl"
                       />
@@ -639,261 +741,490 @@ export default function Pengeluaran() {
         </Dialog>
       </motion.div>
 
-      {/* Search section */}
-      <motion.div variants={item} className="flex flex-col gap-4 md:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Cari pengeluaran..."
-            className="pl-10 rounded-full border-primary/20"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+      {/* Summary cards */}
+      <motion.div variants={container} className="grid gap-6 md:grid-cols-4">
+        <motion.div variants={item} className="md:col-span-4">
+          <Card className="overflow-hidden rounded-2xl border-none shadow-md">
+            <CardContent className="p-0">
+              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x">
+                <div className="p-6 flex items-center space-x-4">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Wallet className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Pengeluaran</p>
+                    <h3 className="text-2xl font-bold mt-1">{formatRupiah(summary.total)}</h3>
+                  </div>
+                </div>
+
+                <div className="p-6 flex items-center space-x-4">
+                  <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                    <CalendarIcon2 className="h-6 w-6 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Pengeluaran Bulan Ini</p>
+                    <h3 className="text-2xl font-bold mt-1">{formatRupiah(summary.approved)}</h3>
+                  </div>
+                </div>
+
+                <div className="p-6 flex items-center space-x-4">
+                  <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Receipt className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Dengan Alokasi Tambahan</p>
+                    <h3 className="text-2xl font-bold mt-1">{formatRupiah(summary.withAllocation)}</h3>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </motion.div>
 
-      {/* Summary cards */}
-      <motion.div variants={container} className="grid gap-6 md:grid-cols-3">
-        <motion.div variants={item}>
-          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-            <div className="gradient-bg-1 p-1">
-              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Total Pengeluaran</CardTitle>
-                <div className="text-2xl font-bold">{formatRupiah(summary.total)}</div>
-              </CardContent>
-            </div>
-          </Card>
-        </motion.div>
-        <motion.div variants={item}>
-          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-            <div className="gradient-bg-2 p-1">
-              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">Pengeluaran Bulan Ini</CardTitle>
-                <div className="text-2xl font-bold">{formatRupiah(summary.approved)}</div>
-              </CardContent>
-            </div>
-          </Card>
-        </motion.div>
-        <motion.div variants={item}>
-          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
-            <div className="gradient-bg-4 p-1">
-              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
-                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">
-                  Dengan Alokasi Tambahan
-                </CardTitle>
-                <div className="text-2xl font-bold">{formatRupiah(summary.withAllocation)}</div>
-              </CardContent>
-            </div>
-          </Card>
-        </motion.div>
+      {/* Search and filters section */}
+      <motion.div variants={item} className="space-y-4">
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Cari pengeluaran..."
+              className="pl-10 rounded-full border-primary/20"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <Button
+            variant="outline"
+            className="rounded-full flex items-center gap-2"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="h-4 w-4" />
+            Filter
+            {(filterBudgetId || filterDateRange.from || filterDateRange.to) && (
+              <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center rounded-full">
+                {(filterBudgetId ? 1 : 0) + (filterDateRange.from || filterDateRange.to ? 1 : 0)}
+              </Badge>
+            )}
+          </Button>
+
+          <Button
+            variant="outline"
+            className="rounded-full"
+            onClick={() => {
+              // Placeholder for export functionality
+              toast({
+                title: "Export",
+                description: "Fitur export akan segera tersedia",
+              })
+            }}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </div>
+
+        {/* Filters panel */}
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <Card className="rounded-xl border border-primary/10">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Anggaran</Label>
+                      <Select value={filterBudgetId} onValueChange={setFilterBudgetId}>
+                        <SelectTrigger className="rounded-lg">
+                          <SelectValue placeholder="Semua anggaran" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Semua anggaran</SelectItem>
+                          {budgets.map((budget) => (
+                            <SelectItem key={budget.id} value={budget.id}>
+                              {budget.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Rentang Tanggal</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal rounded-lg">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {formatDateRange(filterDateRange.from, filterDateRange.to)}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            initialFocus
+                            mode="range"
+                            defaultMonth={filterDateRange.from}
+                            selected={{
+                              from: filterDateRange.from,
+                              to: filterDateRange.to,
+                            }}
+                            onSelect={(range) =>
+                              setFilterDateRange({
+                                from: range?.from,
+                                to: range?.to,
+                              })
+                            }
+                            numberOfMonths={2}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    <div className="flex items-end space-x-2">
+                      <Button variant="outline" className="rounded-full flex-1" onClick={resetFilters}>
+                        <X className="h-4 w-4 mr-2" />
+                        Reset Filter
+                      </Button>
+
+                      <Button
+                        className="rounded-full flex-1 bg-primary text-white hover:bg-primary/90"
+                        onClick={() => setShowFilters(false)}
+                      >
+                        Terapkan
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Expense Table */}
       <motion.div variants={item}>
         <Card className="rounded-2xl border-none shadow-lg overflow-hidden">
-          <div className="rounded-t-xl bg-gradient-to-r from-primary/10 to-secondary/10 p-2">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="font-display">ID</TableHead>
-                  <TableHead className="font-display">Deskripsi</TableHead>
-                  <TableHead className="font-display">Anggaran</TableHead>
-                  <TableHead className="font-display">Tanggal</TableHead>
-                  <TableHead className="font-display">Bukti</TableHead>
-                  <TableHead className="text-right font-display">Jumlah</TableHead>
-                  <TableHead className="text-right font-display">Tindakan</TableHead>
-                </TableRow>
-              </TableHeader>
-            </Table>
+          <div className="rounded-t-xl bg-gradient-to-r from-primary/10 to-secondary/10 p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Daftar Pengeluaran</h3>
+              <div className="text-sm text-muted-foreground">
+                Menampilkan {filteredAndSortedExpenses.length} dari {expenses.length} pengeluaran
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="font-display w-[100px]">ID</TableHead>
+                    <TableHead className="font-display">
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-1 p-0 h-auto font-display hover:bg-transparent"
+                        onClick={() => handleSort("description")}
+                      >
+                        Deskripsi
+                        {sortField === "description" &&
+                          (sortDirection === "asc" ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          ))}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="font-display">
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-1 p-0 h-auto font-display hover:bg-transparent"
+                        onClick={() => handleSort("budgetName")}
+                      >
+                        Anggaran
+                        {sortField === "budgetName" &&
+                          (sortDirection === "asc" ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          ))}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="font-display">
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-1 p-0 h-auto font-display hover:bg-transparent"
+                        onClick={() => handleSort("date")}
+                      >
+                        Tanggal
+                        {sortField === "date" &&
+                          (sortDirection === "asc" ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          ))}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="font-display w-[80px]">Bukti</TableHead>
+                    <TableHead className="font-display text-right">
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-1 p-0 h-auto font-display hover:bg-transparent ml-auto"
+                        onClick={() => handleSort("amount")}
+                      >
+                        Jumlah
+                        {sortField === "amount" &&
+                          (sortDirection === "asc" ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          ))}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="font-display text-right w-[80px]">Tindakan</TableHead>
+                  </TableRow>
+                </TableHeader>
+              </Table>
+            </div>
           </div>
           <div className="bg-white dark:bg-black rounded-b-xl">
-            <Table>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
-                      <div className="flex justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      </div>
-                      <p className="mt-2 text-muted-foreground">Memuat data pengeluaran...</p>
-                    </TableCell>
-                  </TableRow>
-                ) : filteredExpenses.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
-                      <p className="text-muted-foreground">Tidak ada data pengeluaran yang ditemukan</p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredExpenses.map((expense, index) => (
-                    <motion.tr
-                      key={expense.id}
-                      className="hover:bg-primary/5 transition-colors"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      whileHover={{ scale: 1.01 }}
-                    >
-                      <TableCell className="font-medium">{expense.id}</TableCell>
-                      <TableCell>{expense.description}</TableCell>
-                      <TableCell>{expense.budgetName}</TableCell>
-                      <TableCell>{expense.date}</TableCell>
-                      <TableCell>
-                        {expense.imageUrl ? (
-                          <div
-                            className="relative h-10 w-10 cursor-pointer"
-                            onClick={() => openExpenseDetails(expense)}
-                          >
-                            <Image
-                              src={expense.imageUrl || "/placeholder.svg"}
-                              alt="Receipt"
-                              fill
-                              className="object-cover rounded-md"
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-10 w-10 bg-muted flex items-center justify-center rounded-md">
-                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                        )}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8">
+                        <div className="flex justify-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        </div>
+                        <p className="mt-2 text-muted-foreground">Memuat data pengeluaran...</p>
                       </TableCell>
-                      <TableCell className="text-right font-medium">{formatRupiah(expense.amount)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
+                    </TableRow>
+                  ) : filteredAndSortedExpenses.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8">
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                            <FileText className="h-8 w-8 text-muted-foreground" />
+                          </div>
+                          <p className="text-muted-foreground">Tidak ada data pengeluaran yang ditemukan</p>
+                          {(filterBudgetId || filterDateRange.from || filterDateRange.to || searchTerm) && (
+                            <Button variant="outline" className="mt-4 rounded-full" onClick={resetFilters}>
+                              <X className="h-4 w-4 mr-2" />
+                              Reset Filter
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredAndSortedExpenses.map((expense, index) => (
+                      <motion.tr
+                        key={expense.id}
+                        className="hover:bg-primary/5 transition-colors cursor-pointer"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        whileHover={{ scale: 1.01 }}
+                        onClick={() => openExpenseDetails(expense)}
+                      >
+                        <TableCell className="font-medium text-xs text-muted-foreground w-[100px]">
+                          {expense.id}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{expense.description}</div>
+                          {expense.additionalAllocationId && (
+                            <Badge variant="outline" className="mt-1 text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              Alokasi Tambahan
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{expense.budgetName}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            <CalendarIcon2 className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                            {expense.date}
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-[80px]">
+                          {expense.imageUrl ? (
+                            <div className="relative h-10 w-10 cursor-pointer rounded-md overflow-hidden border">
+                              <Image
+                                src={expense.imageUrl || "/placeholder.svg"}
+                                alt="Receipt"
+                                fill
+                                className="object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="h-10 w-10 bg-muted flex items-center justify-center rounded-md">
+                              <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatRupiah(expense.amount)}</TableCell>
+                        <TableCell className="text-right w-[80px]">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="rounded-full h-8 w-8"
-                            onClick={() => openExpenseDetails(expense)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openExpenseDetails(expense)
+                            }}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                        </div>
-                      </TableCell>
-                    </motion.tr>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                      </motion.tr>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </Card>
       </motion.div>
 
       {/* Expense Details Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="sm:max-w-[800px] rounded-2xl">
+        <DialogContent className="sm:max-w-[800px] rounded-2xl p-0 overflow-hidden">
           {selectedExpense && (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-xl font-display">{selectedExpense.description}</DialogTitle>
-                <DialogDescription>Detail pengeluaran</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">ID Pengeluaran</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-medium">{selectedExpense.id}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Anggaran</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-medium">{selectedExpense.budgetName}</p>
-                      <p className="text-xs text-muted-foreground">{selectedExpense.budgetId}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Tanggal</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-medium">{selectedExpense.date}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Jumlah</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-medium">{formatRupiah(selectedExpense.amount)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Diajukan Oleh</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-medium">{selectedExpense.submittedBy}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(selectedExpense.submittedAt).toLocaleString("id-ID")}
-                      </p>
-                    </CardContent>
-                  </Card>
+              <div className="bg-gradient-to-r from-primary to-secondary p-6 text-white">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-xl font-bold mb-1">{selectedExpense.description}</h2>
+                    <div className="flex items-center gap-2 text-white/80">
+                      <span>{formatRupiah(selectedExpense.amount)}</span>
+                      <span>•</span>
+                      <span>{selectedExpense.date}</span>
+                    </div>
+                  </div>
+                  <Badge className="bg-white/20 hover:bg-white/30 text-white border-none">
+                    {selectedExpense.additionalAllocationId ? "Dengan Alokasi Tambahan" : "Pengeluaran Reguler"}
+                  </Badge>
                 </div>
+              </div>
 
-                {selectedExpense?.imageUrl && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Bukti Pengeluaran</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="relative aspect-video w-full">
+              <Tabs defaultValue="details" value={activeTab} onValueChange={setActiveTab} className="p-6">
+                <TabsList className="grid w-full grid-cols-2 rounded-full">
+                  <TabsTrigger value="details" className="rounded-full">
+                    Detail Pengeluaran
+                  </TabsTrigger>
+                  <TabsTrigger value="receipt" className="rounded-full">
+                    Bukti Pengeluaran
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="details" className="mt-6 space-y-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">ID Pengeluaran</span>
+                      </div>
+                      <p className="font-medium">{selectedExpense.id}</p>
+                    </div>
+
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Anggaran</span>
+                      </div>
+                      <p className="font-medium">{selectedExpense.budgetName}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{selectedExpense.budgetId}</p>
+                    </div>
+
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Diajukan Oleh</span>
+                      </div>
+                      <p className="font-medium">{selectedExpense.submittedBy}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(selectedExpense.submittedAt).toLocaleString("id-ID", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedExpense.notes && (
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Info className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Catatan</span>
+                      </div>
+                      <p className="text-muted-foreground">{selectedExpense.notes}</p>
+                    </div>
+                  )}
+
+                  {selectedExpense.additionalAllocation && (
+                    <div className="border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-900 p-4 rounded-lg">
+                      <h3 className="text-blue-800 dark:text-blue-300 font-medium mb-3 flex items-center gap-2">
+                        <Info className="h-4 w-4" />
+                        Informasi Alokasi Tambahan
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <h4 className="text-sm text-blue-700 dark:text-blue-400">ID Alokasi</h4>
+                          <p className="font-medium">{selectedExpense.additionalAllocationId}</p>
+                        </div>
+                        <div>
+                          <h4 className="text-sm text-blue-700 dark:text-blue-400">Jumlah Alokasi Tambahan</h4>
+                          <p className="font-medium">{formatRupiah(selectedExpense.additionalAllocation.amount)}</p>
+                        </div>
+                        <div className="md:col-span-2">
+                          <h4 className="text-sm text-blue-700 dark:text-blue-400">Alasan</h4>
+                          <p>{selectedExpense.additionalAllocation.reason}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="receipt" className="mt-6">
+                  {selectedExpense?.imageUrl ? (
+                    <div className="space-y-4">
+                      <div className="relative aspect-[3/4] w-full max-h-[500px] bg-muted/30 rounded-lg overflow-hidden">
                         <Image
                           src={selectedExpense.imageUrl || "/placeholder.svg"}
                           alt="Receipt"
                           fill
-                          className="object-contain rounded-md"
+                          className="object-contain"
                         />
                       </div>
-                      <Button variant="outline" className="mt-4 rounded-full" asChild>
-                        <a href={selectedExpense.imageUrl} target="_blank" rel="noopener noreferrer">
-                          Lihat Gambar Asli
-                        </a>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {selectedExpense.notes && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Catatan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p>{selectedExpense.notes}</p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {selectedExpense.additionalAllocation && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Informasi Alokasi Tambahan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">ID Alokasi</h4>
-                          <p>{selectedExpense.additionalAllocationId}</p>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Jumlah Alokasi Tambahan</h4>
-                          <p className="font-medium">{formatRupiah(selectedExpense.additionalAllocation.amount)}</p>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Alasan</h4>
-                          <p>{selectedExpense.additionalAllocation.reason}</p>
-                        </div>
+                      <div className="flex justify-center">
+                        <Button variant="outline" className="rounded-full" asChild>
+                          <a href={selectedExpense.imageUrl} target="_blank" rel="noopener noreferrer">
+                            <Eye className="h-4 w-4 mr-2" />
+                            Lihat Gambar Asli
+                          </a>
+                        </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center mb-4">
+                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                      <h3 className="font-medium mb-1">Tidak ada bukti pengeluaran</h3>
+                      <p className="text-muted-foreground">Pengeluaran ini tidak memiliki bukti yang terlampir</p>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+
+              <div className="p-4 border-t flex justify-end">
+                <Button variant="outline" className="rounded-full" onClick={() => setIsDetailsOpen(false)}>
+                  Tutup
+                </Button>
               </div>
             </>
           )}

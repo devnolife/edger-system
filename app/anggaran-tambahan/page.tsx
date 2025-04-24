@@ -501,119 +501,83 @@ export default function AnggaranTambahan() {
 
       {/* Allocation Details Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="sm:max-w-[800px] rounded-2xl">
+        <DialogContent className="sm:max-w-[650px] rounded-2xl p-0 overflow-hidden">
           {selectedAllocation && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-xl font-display">{selectedAllocation.description}</DialogTitle>
-                <DialogDescription>Detail alokasi anggaran tambahan</DialogDescription>
-              </DialogHeader>
-              <Tabs defaultValue="details" className="mt-4">
-                <TabsList className="grid w-full grid-cols-2 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
-                  <TabsTrigger
-                    value="details"
-                    className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                  >
-                    Detail
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="related"
-                    className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
-                  >
-                    Pengeluaran Terkait
-                  </TabsTrigger>
-                </TabsList>
+            <div className="flex flex-col h-full">
+              {/* Header with gradient background */}
+              <div className="bg-gradient-to-r from-primary to-secondary p-6 text-white">
+                <DialogTitle className="text-xl font-display mb-1">{selectedAllocation.description}</DialogTitle>
+                <DialogDescription className="text-white/80 opacity-90">
+                  {formatRupiah(selectedAllocation.amount)} • {selectedAllocation.requestDate}
+                </DialogDescription>
+              </div>
 
-                {/* Details Tab */}
-                <TabsContent value="details" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">ID Alokasi</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedAllocation.id}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Anggaran Asal</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedAllocation.originalBudgetName}</p>
-                        <p className="text-xs text-muted-foreground">{selectedAllocation.originalBudgetId}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Tanggal Permintaan</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{selectedAllocation.requestDate}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Jumlah</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-lg font-medium">{formatRupiah(selectedAllocation.amount)}</p>
-                      </CardContent>
-                    </Card>
+              <Tabs defaultValue="details" className="flex-1">
+                <div className="px-6 pt-4">
+                  <TabsList className="grid w-full grid-cols-2 rounded-full p-1 bg-muted/50 backdrop-blur-sm">
+                    <TabsTrigger
+                      value="details"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Detail
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="related"
+                      className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-white"
+                    >
+                      Pengeluaran Terkait
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                {/* Details Tab - Streamlined */}
+                <TabsContent value="details" className="p-6 pt-4">
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-muted/30 p-3 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">ID Alokasi</div>
+                      <div className="font-medium text-sm">{selectedAllocation.id}</div>
+                    </div>
+                    <div className="bg-muted/30 p-3 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">Anggaran Asal</div>
+                      <div className="font-medium text-sm">{selectedAllocation.originalBudgetName}</div>
+                    </div>
                   </div>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Alasan Permintaan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p>{selectedAllocation.reason}</p>
-                    </CardContent>
-                  </Card>
+                  <div className="space-y-4">
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <h4 className="text-sm font-medium mb-2">Alasan Permintaan</h4>
+                      <p className="text-sm">{selectedAllocation.reason}</p>
+                    </div>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Informasi Tambahan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <h4 className="text-sm font-medium mb-2">Informasi Tambahan</h4>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Dibuat Oleh</h4>
-                          <p>{selectedAllocation.requestedBy}</p>
+                          <div className="text-xs text-muted-foreground">Dibuat Oleh</div>
+                          <div>{selectedAllocation.requestedBy}</div>
                         </div>
                         <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Tanggal Pembuatan</h4>
-                          <p>{new Date(selectedAllocation.requestedAt).toLocaleString("id-ID")}</p>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-muted-foreground">Diproses Pada</h4>
-                          <p>
-                            {new Date(selectedAllocation.approvedAt || selectedAllocation.requestedAt).toLocaleString(
-                              "id-ID",
-                            )}
-                          </p>
+                          <div className="text-xs text-muted-foreground">Tanggal Pembuatan</div>
+                          <div>{new Date(selectedAllocation.requestedAt).toLocaleDateString("id-ID")}</div>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Timeline</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Timeline>
+                    </div>
+
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <h4 className="text-sm font-medium mb-2">Timeline</h4>
+                      <Timeline className="max-h-[180px] overflow-y-auto pr-2">
                         <TimelineItem>
                           <TimelineSeparator>
                             <TimelineDot color="green">
-                              <CheckCircle2 className="h-4 w-4" />
+                              <CheckCircle2 className="h-3 w-3" />
                             </TimelineDot>
                             <TimelineConnector />
                           </TimelineSeparator>
                           <TimelineContent>
                             <TimelineHeader>
-                              <TimelineTitle>Alokasi Dibuat</TimelineTitle>
+                              <TimelineTitle className="text-sm">Alokasi Dibuat</TimelineTitle>
                             </TimelineHeader>
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               Oleh {selectedAllocation.requestedBy} pada{" "}
                               {new Date(selectedAllocation.requestedAt).toLocaleString("id-ID")}
                             </p>
@@ -623,14 +587,14 @@ export default function AnggaranTambahan() {
                         <TimelineItem>
                           <TimelineSeparator>
                             <TimelineDot color="green">
-                              <CheckCircle2 className="h-4 w-4" />
+                              <CheckCircle2 className="h-3 w-3" />
                             </TimelineDot>
                           </TimelineSeparator>
                           <TimelineContent>
                             <TimelineHeader>
-                              <TimelineTitle>Alokasi Diproses</TimelineTitle>
+                              <TimelineTitle className="text-sm">Alokasi Diproses</TimelineTitle>
                             </TimelineHeader>
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               Diproses secara otomatis pada{" "}
                               {new Date(selectedAllocation.approvedAt || selectedAllocation.requestedAt).toLocaleString(
                                 "id-ID",
@@ -643,63 +607,86 @@ export default function AnggaranTambahan() {
                           <TimelineItem>
                             <TimelineSeparator>
                               <TimelineDot color="purple">
-                                <ArrowRight className="h-4 w-4" />
+                                <ArrowRight className="h-3 w-3" />
                               </TimelineDot>
                             </TimelineSeparator>
                             <TimelineContent>
                               <TimelineHeader>
-                                <TimelineTitle>Terhubung dengan Pengeluaran</TimelineTitle>
+                                <TimelineTitle className="text-sm">Terhubung dengan Pengeluaran</TimelineTitle>
                               </TimelineHeader>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 Alokasi ini terhubung dengan pengeluaran {selectedAllocation.relatedExpenseId}
                               </p>
                             </TimelineContent>
                           </TimelineItem>
                         )}
                       </Timeline>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 </TabsContent>
 
-                {/* Related Expense Tab */}
-                <TabsContent value="related" className="mt-4">
+                {/* Related Expense Tab - Streamlined */}
+                <TabsContent value="related" className="p-6 pt-4">
                   {selectedAllocation.relatedExpense ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Detail Pengeluaran Terkait</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">ID Pengeluaran</h4>
-                            <p>{selectedAllocation.relatedExpenseId}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">Deskripsi</h4>
-                            <p>{selectedAllocation.relatedExpense.description}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-medium text-muted-foreground">Jumlah</h4>
-                            <p className="font-medium">{formatRupiah(selectedAllocation.relatedExpense.amount)}</p>
+                    <div className="space-y-4">
+                      <div className="bg-muted/30 p-4 rounded-lg">
+                        <div className="flex justify-between items-center mb-3">
+                          <h4 className="text-sm font-medium">Detail Pengeluaran</h4>
+                          <div className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-full">
+                            {selectedAllocation.relatedExpenseId}
                           </div>
                         </div>
-                        <div className="mt-6">
-                          <Button className="rounded-full" asChild>
-                            <a href={`/pengeluaran?expense=${selectedAllocation.relatedExpenseId}`}>
-                              Lihat Detail Pengeluaran
-                            </a>
-                          </Button>
+
+                        <div className="space-y-3">
+                          <div>
+                            <div className="text-xs text-muted-foreground">Deskripsi</div>
+                            <p className="text-sm">{selectedAllocation.relatedExpense.description}</p>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Jumlah</div>
+                            <p className="text-sm font-medium">
+                              {formatRupiah(selectedAllocation.relatedExpense.amount)}
+                            </p>
+                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
+                      </div>
+
+                      <div className="flex justify-center">
+                        <Button className="rounded-full text-sm px-4 h-9" asChild>
+                          <a href={`/pengeluaran?expense=${selectedAllocation.relatedExpenseId}`}>
+                            Lihat Detail Pengeluaran
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-8">
-                      <p className="text-muted-foreground">Alokasi ini tidak terkait dengan pengeluaran tertentu</p>
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <div className="bg-muted/50 rounded-full p-3 mb-3">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-muted-foreground"
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="12" y1="8" x2="12" y2="12" />
+                          <line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                      </div>
+                      <p className="text-muted-foreground text-sm">
+                        Alokasi ini tidak terkait dengan pengeluaran tertentu
+                      </p>
                     </div>
                   )}
                 </TabsContent>
               </Tabs>
-            </>
+            </div>
           )}
         </DialogContent>
       </Dialog>
