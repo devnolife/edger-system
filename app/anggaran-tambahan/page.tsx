@@ -21,7 +21,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CalendarIcon, Eye, Plus, Search } from "lucide-react"
+import { CalendarIcon, Eye, Plus, Search, Edit, Trash } from "lucide-react"
 import { format } from "date-fns"
 import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -50,6 +50,8 @@ import {
   TimelineSeparator,
   TimelineTitle,
 } from "@/components/ui/timeline"
+import { EditAllocationDialog } from "./edit-allocation-dialog"
+import { DeleteAllocationDialog } from "./delete-allocation-dialog"
 
 export default function AnggaranTambahan() {
   const { role, user } = useUserRole()
@@ -63,11 +65,14 @@ export default function AnggaranTambahan() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedAllocation, setSelectedAllocation] = useState<AdditionalAllocation | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [allocations, setAllocations] = useState<AdditionalAllocation[]>([])
   const [budgets, setBudgets] = useState<{ id: string; name: string }[]>([])
   const [summary, setSummary] = useState({
     total: 0,
+    count: 0,
   })
 
   // Form state
@@ -257,6 +262,33 @@ export default function AnggaranTambahan() {
     }
   }
 
+  // Open edit dialog
+  const openEditDialog = (allocation: AdditionalAllocation) => {
+    setSelectedAllocation(allocation)
+    setIsEditDialogOpen(true)
+  }
+
+  // Open delete dialog
+  const openDeleteDialog = (allocation: AdditionalAllocation) => {
+    setSelectedAllocation(allocation)
+    setIsDeleteDialogOpen(true)
+  }
+
+  // Handle successful action (edit or delete)
+  const handleActionSuccess = async () => {
+    // Refresh allocations
+    const allocationsResult = await getAdditionalAllocations()
+    if (allocationsResult.success) {
+      setAllocations(allocationsResult.allocations)
+    }
+
+    // Refresh summary
+    const summaryResult = await getAllocationSummary()
+    if (summaryResult.success) {
+      setSummary(summaryResult.summary)
+    }
+  }
+
   const canManageAllocations = role === "superadmin" || role === "admin" || role === "finance"
 
   const container = {
@@ -426,6 +458,19 @@ export default function AnggaranTambahan() {
             </div>
           </Card>
         </motion.div>
+
+        <motion.div variants={item}>
+          <Card className="overflow-hidden rounded-2xl border-none shadow-lg card-hover-effect">
+            <div className="gradient-bg-2 p-1">
+              <CardContent className="bg-white dark:bg-black rounded-xl p-6">
+                <CardTitle className="text-sm font-medium text-muted-foreground mb-2">
+                  Jumlah Item Anggaran Tambahan
+                </CardTitle>
+                <div className="text-2xl font-bold">{summary.count} item</div>
+              </CardContent>
+            </div>
+          </Card>
+        </motion.div>
       </motion.div>
 
       {/* Allocation Table */}
@@ -483,11 +528,36 @@ export default function AnggaranTambahan() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="rounded-full h-8 w-8"
+                            className="rounded-full h-8 w-8 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
                             onClick={() => openAllocationDetails(allocation)}
+                            title="Lihat Detail"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
+
+                          {canManageAllocations && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                              onClick={() => openEditDialog(allocation)}
+                              title="Edit Alokasi"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+
+                          {role === "superadmin" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => openDeleteDialog(allocation)}
+                              title="Hapus Alokasi"
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </motion.tr>
@@ -690,6 +760,23 @@ export default function AnggaranTambahan() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Edit Allocation Dialog */}
+      <EditAllocationDialog
+        isOpen={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        allocation={selectedAllocation}
+        onSuccess={handleActionSuccess}
+      />
+
+      {/* Delete Allocation Dialog */}
+      <DeleteAllocationDialog
+        isOpen={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        allocation={selectedAllocation}
+        onSuccess={handleActionSuccess}
+      />
+
       {/* Add the loading overlay */}
       <LoadingOverlay
         isLoading={isProcessing}

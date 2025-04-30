@@ -494,6 +494,66 @@ export async function deleteBudget(id: string) {
   }
 }
 
+// Delete a budget along with all associated expenses
+export async function deleteBudgetWithExpenses(id: string) {
+  try {
+    // Use a transaction to ensure atomicity
+    await sql`BEGIN`
+
+    try {
+      // First delete all expenses associated with this budget
+      const deleteExpensesResult = await sql`
+        DELETE FROM expenses WHERE budget_id = ${id}
+      `
+
+      console.log(`Deleted ${deleteExpensesResult.count} expenses associated with budget ${id}`)
+
+      // Then delete any additional allocations associated with this budget
+      const deleteAllocationsResult = await sql`
+        DELETE FROM additional_allocations WHERE original_budget_id = ${id}
+      `
+
+      console.log(`Deleted ${deleteAllocationsResult.count} allocations associated with budget ${id}`)
+
+      // Finally delete the budget itself
+      const deleteBudgetResult = await sql`
+        DELETE FROM budgets WHERE id = ${id}
+      `
+
+      if (deleteBudgetResult.count === 0) {
+        await sql`ROLLBACK`
+        return {
+          success: false,
+          error: "Budget not found",
+        }
+      }
+
+      // Commit the transaction
+      await sql`COMMIT`
+
+      // Revalidate the budgets page to reflect the changes
+      revalidatePath("/anggaran")
+      revalidatePath("/pengeluaran")
+
+      return {
+        success: true,
+        deletedExpenses: deleteExpensesResult.count,
+        deletedAllocations: deleteAllocationsResult.count,
+      }
+    } catch (error) {
+      // Rollback on error
+      await sql`ROLLBACK`
+      throw error
+    }
+  } catch (error) {
+    console.error("Error deleting budget with expenses:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
+  }
+}
+
 // Get budget summary - removed status filtering
 export async function getBudgetSummary() {
   try {

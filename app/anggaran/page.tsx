@@ -11,12 +11,15 @@ import { formatRupiah } from "@/lib/format-rupiah"
 import { Edit, Eye, Plus, Search, Trash } from "lucide-react"
 import { motion } from "framer-motion"
 import { useUserRole } from "@/hooks/use-user-role"
-import { getBudgets, getBudgetById, getBudgetSummary, type Budget, createBudget } from "@/app/actions/budget-actions"
+import { getBudgets, getBudgetById, getBudgetSummary, type Budget } from "@/app/actions/budget-actions"
 import { useToast } from "@/hooks/use-toast"
 import { useSearchParams } from "next/navigation"
 import { useBudgetUpdates } from "@/hooks/use-budget-updates"
 import { getExpensesByBudgetId } from "@/app/actions/expense-actions"
 import { CreateBudgetDialog } from "./create-budget-dialog"
+import { BudgetDetailsDialog } from "./budget-details-dialog"
+import { EditBudgetDialog } from "./edit-budget-dialog"
+import { DeleteBudgetDialog } from "./delete-budget-dialog"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
@@ -24,9 +27,11 @@ export default function Anggaran() {
   const searchParams = useSearchParams()
   const budgetIdParam = searchParams.get("budgetId")
   const [searchTerm, setSearchTerm] = useState("")
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [summary, setSummary] = useState({
@@ -47,13 +52,6 @@ export default function Anggaran() {
     }>
   >([])
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(false)
-
-  // Form state
-  const [budgetName, setBudgetName] = useState("")
-  const [amount, setAmount] = useState("")
-  const [description, setDescription] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [creationDate, setCreationDate] = useState(new Date())
 
   // Use the budget updates hook
   const { lastUpdate } = useBudgetUpdates((event) => {
@@ -137,6 +135,15 @@ export default function Anggaran() {
         if (summaryResult.success) {
           setSummary(summaryResult.summary)
         }
+
+        // If there's a budget ID in the URL, open its details
+        if (budgetIdParam) {
+          const budget = budgetsResult.success ? budgetsResult.budgets.find((b) => b.id === budgetIdParam) : null
+
+          if (budget) {
+            openBudgetDetails(budget)
+          }
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         toast({
@@ -165,70 +172,11 @@ export default function Anggaran() {
 
   const canManageBudgets = role === "superadmin" || role === "admin"
 
-  // Handle budget creation
-  const handleCreateBudget = async () => {
-    if (!budgetName || !amount || !creationDate) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setIsSubmitting(true)
-
-    const formData = new FormData()
-    formData.append("name", budgetName)
-    formData.append("amount", amount)
-    formData.append("creationDate", creationDate.toISOString().split("T")[0])
-    formData.append("description", description)
-    formData.append("createdBy", user?.name || "Unknown User")
-
-    try {
-      const result = await createBudget(formData)
-      if (result.success) {
-        toast({
-          title: "Success",
-          description: "Budget created successfully",
-        })
-
-        // Refresh budgets
-        const budgetsResult = await getBudgets()
-        if (budgetsResult.success) {
-          setBudgets(budgetsResult.budgets)
-        }
-
-        // Reset form and close dialog
-        setBudgetName("")
-        setAmount("")
-        setDescription("")
-        setCreationDate(new Date())
-        setIsDialogOpen(false)
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to create budget",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Error creating budget:", error)
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
   // Open budget details
   const openBudgetDetails = async (budget: Budget) => {
     setIsLoadingDetails(true)
     setSelectedBudget(budget) // Set initial data from the list
-    setIsDetailsOpen(true)
+    setIsDetailsDialogOpen(true)
     setBudgetExpenses([]) // Reset expenses when opening a new budget
 
     try {
@@ -273,8 +221,20 @@ export default function Anggaran() {
     }
   }
 
+  // Open edit budget dialog
+  const openEditBudget = async (budget: Budget) => {
+    setSelectedBudget(budget)
+    setIsEditDialogOpen(true)
+  }
+
+  // Open delete budget dialog
+  const openDeleteBudget = async (budget: Budget) => {
+    setSelectedBudget(budget)
+    setIsDeleteDialogOpen(true)
+  }
+
   // Handle budget creation success
-  const handleBudgetCreationSuccess = () => {
+  const handleBudgetActionSuccess = () => {
     refreshBudgetData()
   }
 
@@ -305,7 +265,10 @@ export default function Anggaran() {
         </div>
         {canManageBudgets && (
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button className="rounded-full animated-gradient-button text-white" onClick={() => setIsDialogOpen(true)}>
+            <Button
+              className="rounded-full animated-gradient-button text-white"
+              onClick={() => setIsCreateDialogOpen(true)}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Buat Anggaran Baru
             </Button>
@@ -315,10 +278,48 @@ export default function Anggaran() {
 
       {/* Create Budget Dialog */}
       <CreateBudgetDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        onSuccess={refreshBudgetData}
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        onSuccess={handleBudgetActionSuccess}
         userName={user?.name || "Unknown User"}
+      />
+
+      {/* Budget Details Dialog */}
+      <BudgetDetailsDialog
+        open={isDetailsDialogOpen}
+        onOpenChange={setIsDetailsDialogOpen}
+        budget={
+          selectedBudget || {
+            id: "",
+            name: "",
+            amount: 0,
+            startDate: "",
+            createdBy: "",
+            createdAt: "",
+            availableAmount: 0,
+            spentAmount: 0,
+          }
+        }
+        expenses={budgetExpenses}
+        isLoading={isLoadingDetails}
+        isLoadingExpenses={isLoadingExpenses}
+        lastUpdate={lastUpdate}
+      />
+
+      {/* Edit Budget Dialog */}
+      <EditBudgetDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        onSuccess={handleBudgetActionSuccess}
+        budget={selectedBudget}
+      />
+
+      {/* Delete Budget Dialog */}
+      <DeleteBudgetDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        onSuccess={handleBudgetActionSuccess}
+        budget={selectedBudget}
       />
 
       {/* Search section */}
@@ -473,12 +474,22 @@ export default function Anggaran() {
                               <Eye className="h-4 w-4" />
                             </Button>
                             {canManageBudgets && (
-                              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="rounded-full h-8 w-8"
+                                onClick={() => openEditBudget(budget)}
+                              >
                                 <Edit className="h-4 w-4" />
                               </Button>
                             )}
                             {role === "superadmin" && (
-                              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="rounded-full h-8 w-8"
+                                onClick={() => openDeleteBudget(budget)}
+                              >
                                 <Trash className="h-4 w-4" />
                               </Button>
                             )}
@@ -493,8 +504,6 @@ export default function Anggaran() {
           </div>
         </Card>
       </motion.div>
-
-      {/* Budget Details Dialog will be handled by a separate component */}
     </motion.div>
   )
 }

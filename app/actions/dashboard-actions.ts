@@ -4,9 +4,10 @@ import { sql, executeQueryWithRetry } from "@/lib/db"
 
 // Dashboard summary data type
 export interface DashboardSummary {
-  totalAssets: number
   totalExpenses: number
   expenseGrowth: number // percentage change from previous month
+  totalBudgetItems: number
+  totalAdditionalBudgetItems: number
 }
 
 // Recent transaction data type
@@ -22,17 +23,6 @@ export interface RecentTransaction {
  */
 export async function getDashboardSummary(): Promise<{ success: boolean; data?: DashboardSummary; error?: string }> {
   try {
-    // Get total assets (sum of all budget amounts)
-    const totalAssetsResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total FROM budgets
-      `,
-    )
-    const totalAssets = Number(totalAssetsResult[0]?.total || 0)
-
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
     // Get total expenses
     const totalExpensesResult = await executeQueryWithRetry(
       () => sql<{ total: number }[]>`
@@ -82,12 +72,24 @@ export async function getDashboardSummary(): Promise<{ success: boolean; data?: 
       expenseGrowth = ((currentMonthExpenses - previousMonthExpenses) / previousMonthExpenses) * 100
     }
 
+    // Get total number of budget items
+    const totalBudgetItemsResult = await executeQueryWithRetry(
+      () => sql<{ count: number }[]>`
+        SELECT COUNT(*) as count FROM budgets
+      `,
+    )
+    const totalBudgetItems = Number(totalBudgetItemsResult[0]?.count || 0)
+
+    // Set default value for additional budget items since the table doesn't exist
+    const totalAdditionalBudgetItems = 0
+
     return {
       success: true,
       data: {
-        totalAssets,
         totalExpenses,
         expenseGrowth,
+        totalBudgetItems,
+        totalAdditionalBudgetItems,
       },
     }
   } catch (error) {

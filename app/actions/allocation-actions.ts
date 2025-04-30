@@ -34,6 +34,16 @@ const allocationSchema = z.object({
   relatedExpenseId: z.string().optional(),
 })
 
+// Update validation schema for editing
+const updateAllocationSchema = z.object({
+  id: z.string().min(1, "Allocation ID is required"),
+  originalBudgetId: z.string().min(1, "Budget ID is required"),
+  description: z.string().min(3, "Description must be at least 3 characters"),
+  reason: z.string().min(3, "Reason must be at least 3 characters"),
+  amount: z.number().positive("Amount must be positive"),
+  requestDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
+})
+
 // Create a new additional allocation - removed status field
 export async function createAdditionalAllocation(formData: FormData) {
   try {
@@ -102,6 +112,147 @@ export async function createAdditionalAllocation(formData: FormData) {
     return { success: true, id }
   } catch (error) {
     console.error("Error creating additional allocation:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
+  }
+}
+
+// Update an existing additional allocation
+export async function updateAdditionalAllocation(formData: FormData) {
+  try {
+    // Extract and validate data
+    const id = formData.get("id") as string
+    const originalBudgetId = formData.get("originalBudgetId") as string
+    const description = formData.get("description") as string
+    const reason = formData.get("reason") as string
+    const amount = Number.parseFloat(formData.get("amount") as string)
+    const requestDate = formData.get("requestDate") as string
+
+    // Validate data
+    const validatedData = updateAllocationSchema.parse({
+      id,
+      originalBudgetId,
+      description,
+      reason,
+      amount,
+      requestDate,
+    })
+
+    // Check if the allocation exists
+    const existingAllocation = await executeQueryWithRetry(
+      () => sql`SELECT id, amount FROM additional_allocations WHERE id = ${validatedData.id}`,
+    )
+
+    if (existingAllocation.length === 0) {
+      return {
+        success: false,
+        error: "Additional allocation not found",
+      }
+    }
+
+    // Check if there are any expenses using this allocation
+    const expensesResult = await executeQueryWithRetry(
+      () => sql<{ total: number }[]>`
+      SELECT COALESCE(SUM(amount), 0) as total 
+      FROM expenses 
+      WHERE additional_allocation_id = ${validatedData.id}
+    `,
+    )
+
+    const spentAmount = Number(expensesResult[0]?.total || 0)
+
+    // If the new amount is less than the spent amount, return an error
+    if (validatedData.amount < spentAmount) {
+      return {
+        success: false,
+        error: `Cannot reduce allocation amount below spent amount (${spentAmount})`,
+      }
+    }
+
+    // Update the allocation
+    await executeQueryWithRetry(
+      () => sql`
+      UPDATE additional_allocations 
+      SET 
+        original_budget_id = ${validatedData.originalBudgetId},
+        description = ${validatedData.description},
+        reason = ${validatedData.reason},
+        amount = ${validatedData.amount},
+        request_date = ${formatDateForSQL(validatedData.requestDate)}
+      WHERE id = ${validatedData.id}
+    `,
+    )
+
+    // Revalidate the allocations page to reflect the changes
+    revalidatePath("/anggaran-tambahan")
+    // Also revalidate the budget page to reflect the updated budget amounts
+    revalidatePath("/anggaran")
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating additional allocation:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
+  }
+}
+
+// Delete an additional allocation
+export async function deleteAdditionalAllocation(id: string) {
+  try {
+    // Check if the allocation exists
+    const existingAllocation = await executeQueryWithRetry(
+      () => sql`SELECT id FROM additional_allocations WHERE id = ${id}`,
+    )
+
+    if (existingAllocation.length === 0) {
+      return {
+        success: false,
+        error: "Additional allocation not found",
+      }
+    }
+
+    // Check if there are any expenses using this allocation
+    const expensesResult = await executeQueryWithRetry(
+      () => sql<{ count: number }[]>`
+      SELECT COUNT(*) as count 
+      FROM expenses 
+      WHERE additional_allocation_id = ${id}
+    `,
+    )
+
+    const expenseCount = Number(expensesResult[0]?.count || 0)
+
+    if (expenseCount > 0) {
+      // Update expenses to remove the allocation reference
+      await executeQueryWithRetry(
+        () => sql`
+        UPDATE expenses 
+        SET additional_allocation_id = NULL
+        WHERE additional_allocation_id = ${id}
+      `,
+      )
+    }
+
+    // Delete the allocation
+    await executeQueryWithRetry(
+      () => sql`
+      DELETE FROM additional_allocations 
+      WHERE id = ${id}
+    `,
+    )
+
+    // Revalidate the allocations page to reflect the changes
+    revalidatePath("/anggaran-tambahan")
+    // Also revalidate the budget page to reflect the updated budget amounts
+    revalidatePath("/anggaran")
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting additional allocation:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",
@@ -332,10 +483,20 @@ export async function getAllocationSummary() {
 
     const total = Number(totalResult[0]?.total || 0)
 
+    // Get count of allocations
+    const countResult = await executeQueryWithRetry(
+      () => sql<{ count: number }[]>`
+      SELECT COUNT(*) as count FROM additional_allocations
+    `,
+    )
+
+    const count = Number(countResult[0]?.count || 0)
+
     return {
       success: true,
       summary: {
         total,
+        count,
       },
     }
   } catch (error) {
