@@ -4,6 +4,9 @@ import { sql, generateId, formatDateForSQL, executeQueryWithRetry } from "@/lib/
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+// Add import for the new db fallback utilities
+import { withDbErrorHandling } from "@/lib/db-fallback"
+
 // Define types - removed BudgetStatus type since it's no longer needed
 export interface Budget {
   id: string
@@ -227,101 +230,47 @@ export async function createBudget(formData: FormData) {
   }
 }
 
-// Modify the getBudgets function to handle rate limiting better
+// Update the getBudgets function to use the fallback mechanism
+// Find the getBudgets function and replace it with:
+
 export async function getBudgets() {
-  try {
-    // Get all budgets
-    const budgets = await executeQueryWithRetry(
-      () => sql<
-        {
-          id: string
-          name: string
-          amount: number
-          start_date: string
-          description: string | null
-          created_by: string
-          created_at: string
-        }[]
-      >`
-      SELECT * FROM budgets ORDER BY created_at DESC
-    `,
-    )
+  const result = await withDbErrorHandling(async () => {
+    const budgets = await sql`
+      SELECT 
+        b.id, 
+        b.name, 
+        b.amount, 
+        TO_CHAR(b.start_date, 'DD-MM-YYYY') as start_date,
+        b.created_by,
+        TO_CHAR(b.created_at, 'DD-MM-YYYY') as created_at,
+        COALESCE(SUM(e.amount), 0) as spent_amount
+      FROM 
+        budgets b
+      LEFT JOIN 
+        expenses e ON b.id = e.budget_id
+      GROUP BY 
+        b.id, b.name, b.amount, b.start_date, b.created_by, b.created_at
+      ORDER BY 
+        b.created_at DESC
+    `
 
-    // Instead of querying for each budget individually, do batch queries
-    // Get all budget IDs
-    const budgetIds = budgets.map((budget) => budget.id)
+    return budgets.map((budget) => ({
+      id: budget.id,
+      name: budget.name,
+      amount: Number(budget.amount),
+      startDate: budget.start_date,
+      createdBy: budget.created_by,
+      createdAt: budget.created_at,
+      spentAmount: Number(budget.spent_amount),
+      availableAmount: Number(budget.amount) - Number(budget.spent_amount),
+    }))
+  }, "Failed to fetch budgets")
 
-    // If no budgets, return empty array
-    if (budgetIds.length === 0) {
-      return { success: true, budgets: [] }
-    }
-
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
-    // Get all expenses in a single query
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ budget_id: string; total: number }[]>`
-      SELECT budget_id, COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE budget_id = ANY(${budgetIds})
-      GROUP BY budget_id
-    `,
-    )
-
-    // Create a map of budget_id to spent amount
-    const spentAmountMap = new Map<string, number>()
-    expensesResult.forEach((row) => {
-      spentAmountMap.set(row.budget_id, Number(row.total))
-    })
-
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
-    // Get all additional allocations in a single query
-    const allocationsResult = await executeQueryWithRetry(
-      () => sql<{ original_budget_id: string; total: number }[]>`
-      SELECT original_budget_id, COALESCE(SUM(amount), 0) as total 
-      FROM additional_allocations 
-      WHERE original_budget_id = ANY(${budgetIds})
-      GROUP BY original_budget_id
-    `,
-    )
-
-    // Create a map of budget_id to additional amount
-    const additionalAmountMap = new Map<string, number>()
-    allocationsResult.forEach((row) => {
-      additionalAmountMap.set(row.original_budget_id, Number(row.total))
-    })
-
-    // Map the budgets with calculated fields
-    const budgetsWithCalculatedFields = budgets.map((budget) => {
-      const spentAmount = spentAmountMap.get(budget.id) || 0
-      const additionalAmount = additionalAmountMap.get(budget.id) || 0
-      const availableAmount = budget.amount + additionalAmount - spentAmount
-
-      return {
-        id: budget.id,
-        name: budget.name,
-        amount: budget.amount,
-        startDate: budget.start_date,
-        description: budget.description || undefined,
-        createdBy: budget.created_by,
-        createdAt: budget.created_at,
-        spentAmount,
-        availableAmount,
-        additionalAmount,
-      }
-    })
-
-    return { success: true, budgets: budgetsWithCalculatedFields }
-  } catch (error) {
-    console.error("Error fetching budgets:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "An unknown error occurred",
-    }
+  if (!result.success) {
+    return { success: false, error: result.error, budgets: [] }
   }
+
+  return { success: true, budgets: result.data || [] }
 }
 
 // Get a single budget by ID with calculated fields - removed status references

@@ -1,9 +1,13 @@
 import { neon } from "@neondatabase/serverless"
 import { drizzle } from "drizzle-orm/neon-http"
 
-// Initialize the SQL client with the DATABASE_URL environment variable
-// Add connection pooling configuration
-export const sql = neon(process.env.DATABASE_URL!, {
+// Update the SQL client initialization to handle missing DATABASE_URL
+// by providing a fallback or better error handling
+// Check if DATABASE_URL is available and provide a fallback for development
+const connectionString =
+  process.env.DATABASE_URL || process.env.POSTGRES_URL || "postgresql://postgres:postgres@localhost:5432/sikepro"
+
+export const sql = neon(connectionString, {
   fetchOptions: {
     cache: "no-store",
   },

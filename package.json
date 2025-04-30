@@ -87,8 +87,8 @@
     "@cloudflare/workers-types": "latest",
     "@op-engineering/op-sqlite": "latest",
     "framer-motion": "latest",
-    "drizzle-orm": "latest",
-    "@vercel/blob": "latest"
+    "@vercel/blob": "latest",
+    "drizzle-orm": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

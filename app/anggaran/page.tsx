@@ -20,6 +20,7 @@ import { CreateBudgetDialog } from "./create-budget-dialog"
 import { BudgetDetailsDialog } from "./budget-details-dialog"
 import { EditBudgetDialog } from "./edit-budget-dialog"
 import { DeleteBudgetDialog } from "./delete-budget-dialog"
+import { DbConnectionStatus } from "@/components/db-connection-status"
 
 export default function Anggaran() {
   const { role, user } = useUserRole()
@@ -255,6 +256,7 @@ export default function Anggaran() {
 
   return (
     <motion.div className="space-y-6" initial="hidden" animate="show" variants={container}>
+      <DbConnectionStatus />
       {/* Header section */}
       <motion.div variants={item} className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
