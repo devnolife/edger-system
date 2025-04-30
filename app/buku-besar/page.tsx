@@ -15,7 +15,6 @@ import {
   Search,
   ArrowUpRight,
   CalendarPlus2Icon as CalendarIcon2,
-  CreditCard,
   DollarSign,
   ClipboardList,
   AlertCircle,
@@ -342,7 +341,6 @@ export default function BukuBesar() {
                   <TableHead className="font-display">Referensi</TableHead>
                   <TableHead className="font-display">Nama Anggaran</TableHead>
                   <TableHead className="font-display">Deskripsi</TableHead>
-                  <TableHead className="font-display">Metode Pembayaran</TableHead>
                   <TableHead className="text-right font-display">Jumlah</TableHead>
                   <TableHead className="text-right font-display">Detail</TableHead>
                 </TableRow>
@@ -378,7 +376,6 @@ export default function BukuBesar() {
                         </span>
                       </TableCell>
                       <TableCell>{expense.description}</TableCell>
-                      <TableCell>{expense.paymentMethod}</TableCell>
                       <TableCell className="text-right font-medium text-red-500">
                         {formatRupiah(expense.amount)}
                       </TableCell>
@@ -438,13 +435,6 @@ export default function BukuBesar() {
                   <div className="flex items-center">
                     <DollarSign className="h-4 w-4 mr-2 text-red-500" />
                     <p className="font-medium text-red-500">{formatRupiah(selectedExpense.amount)}</p>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-1">Metode Pembayaran</h3>
-                  <div className="flex items-center">
-                    <CreditCard className="h-4 w-4 mr-2 text-primary" />
-                    <p className="font-medium">{selectedExpense.paymentMethod}</p>
                   </div>
                 </div>
                 <div>

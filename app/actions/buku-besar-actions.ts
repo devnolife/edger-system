@@ -11,7 +11,6 @@ export interface ExpenseTransaction {
   budgetName: string
   amount: number
   description: string
-  paymentMethod: string
   submittedBy: string
   submittedAt: string
   notes?: string
@@ -67,7 +66,6 @@ export async function getExpensesWithBudget() {
       budgetName: expense.budget_name,
       amount: Number(expense.amount),
       description: expense.description,
-      paymentMethod: "Transfer Bank", // Default payment method since column doesn't exist
       submittedBy: expense.submitted_by,
       submittedAt: new Date(expense.submitted_at).toLocaleString("id-ID"),
       notes: expense.notes || undefined,
@@ -184,7 +182,6 @@ export async function getExpensesByBudget(budgetId: string) {
       budgetName: expense.budget_name,
       amount: Number(expense.amount),
       description: expense.description,
-      paymentMethod: "Transfer Bank", // Default payment method
       submittedBy: expense.submitted_by,
       submittedAt: new Date(expense.submitted_at).toLocaleString("id-ID"),
       notes: expense.notes || undefined,
