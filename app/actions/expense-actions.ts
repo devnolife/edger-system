@@ -34,7 +34,6 @@ const expenseSchema = z.object({
   imageUrl: z.string().min(1, "Receipt image is required"),
 })
 
-// Update the createExpense function to handle image uploads
 export async function createExpense(formData: FormData) {
   try {
     // Extract and validate data
@@ -95,15 +94,15 @@ export async function createExpense(formData: FormData) {
       await prisma.additionalAllocation.create({
         data: {
           id: additionalAllocationId,
-          originalBudgetId: validatedData.budgetId,
+          original_budget_id: validatedData.budgetId,
           description: `Alokasi tambahan untuk: ${validatedData.description}`,
           reason: "Pengeluaran melebihi anggaran yang tersedia",
           amount: new Prisma.Decimal(shortageAmount),
-          requestDate: formatDateForDB(validatedData.date),
-          requestedBy: validatedData.submittedBy,
-          approvedBy: validatedData.submittedBy,
-          approvedAt: new Date(),
-          relatedExpenseId: id,
+          request_date: formatDateForDB(validatedData.date),
+          requested_by: validatedData.submittedBy,
+          approved_by: validatedData.submittedBy,
+          approved_at: new Date(),
+          related_expense_id: id,
         },
       })
     }
@@ -112,14 +111,14 @@ export async function createExpense(formData: FormData) {
     await prisma.expense.create({
       data: {
         id,
-        budgetId: validatedData.budgetId,
+        budget_id: validatedData.budgetId,
         description: validatedData.description,
         amount: new Prisma.Decimal(validatedData.amount),
         date: formatDateForDB(validatedData.date),
-        submittedBy: validatedData.submittedBy,
+        submitted_by: validatedData.submittedBy,
         notes: validatedData.notes,
-        additionalAllocationId,
-        imageUrl: validatedData.imageUrl,
+        additional_allocation_id: additionalAllocationId,
+        image_url: validatedData.imageUrl,
       },
     })
 
@@ -157,28 +156,24 @@ export async function getExpenses() {
   try {
     // Get all expenses with budget name
     const expenses = await prisma.expense.findMany({
-      include: {
-        budget: true,
-      },
-      orderBy: {
-        submittedAt: "desc",
-      },
+      include: { budget: true },
+      orderBy: { submitted_at: "desc" },
     })
 
     return {
       success: true,
       expenses: expenses.map((expense) => ({
         id: expense.id,
-        budgetId: expense.budgetId,
+        budgetId: expense.budget_id,
         budgetName: expense.budget.name,
         description: expense.description,
         amount: Number(expense.amount),
         date: expense.date.toISOString().split("T")[0],
-        submittedBy: expense.submittedBy,
-        submittedAt: expense.submittedAt.toISOString(),
+        submittedBy: expense.submitted_by,
+        submittedAt: expense.submitted_at.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additionalAllocationId || undefined,
-        imageUrl: expense.imageUrl || undefined,
+        additionalAllocationId: expense.additional_allocation_id || undefined,
+        imageUrl: expense.image_url || undefined,
       })),
     }
   } catch (error) {
@@ -207,9 +202,9 @@ export async function getExpenseById(id: string) {
 
     // If there's an additional allocation, get its details
     let additionalAllocation = null
-    if (expense.additionalAllocationId) {
+    if (expense.additional_allocation_id) {
       const allocation = await prisma.additionalAllocation.findUnique({
-        where: { id: expense.additionalAllocationId },
+        where: { id: expense.additional_allocation_id },
       })
 
       if (allocation) {
@@ -226,17 +221,17 @@ export async function getExpenseById(id: string) {
       success: true,
       expense: {
         id: expense.id,
-        budgetId: expense.budgetId,
+        budgetId: expense.budget_id,
         budgetName: expense.budget.name,
         description: expense.description,
         amount: Number(expense.amount),
         date: expense.date.toISOString().split("T")[0],
-        submittedBy: expense.submittedBy,
-        submittedAt: expense.submittedAt.toISOString(),
+        submittedBy: expense.submitted_by,
+        submittedAt: expense.submitted_at.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additionalAllocationId || undefined,
+        additionalAllocationId: expense.additional_allocation_id || undefined,
         additionalAllocation,
-        imageUrl: expense.imageUrl || undefined,
+        imageUrl: expense.image_url || undefined,
       },
     }
   } catch (error) {
@@ -252,12 +247,12 @@ export async function getExpenseById(id: string) {
 export async function getExpensesByBudgetId(budgetId: string) {
   try {
     const expenses = await prisma.expense.findMany({
-      where: { budgetId },
+      where: { budget_id: budgetId },
       include: {
         budget: true,
       },
       orderBy: {
-        submittedAt: "desc",
+        submitted_at: "desc",
       },
     })
 
@@ -265,16 +260,16 @@ export async function getExpensesByBudgetId(budgetId: string) {
       success: true,
       expenses: expenses.map((expense) => ({
         id: expense.id,
-        budgetId: expense.budgetId,
+        budgetId: expense.budget_id,
         budgetName: expense.budget.name,
         description: expense.description,
         amount: Number(expense.amount),
         date: expense.date.toISOString().split("T")[0],
-        submittedBy: expense.submittedBy,
-        submittedAt: expense.submittedAt.toISOString(),
+        submittedBy: expense.submitted_by,
+        submittedAt: expense.submitted_at.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additionalAllocationId || undefined,
-        imageUrl: expense.imageUrl || undefined,
+        additionalAllocationId: expense.additional_allocation_id || undefined,
+        imageUrl: expense.image_url || undefined,
       })),
     }
   } catch (error) {
@@ -297,12 +292,12 @@ export async function getExpenseSummary() {
 
     // Calculate approved (without additional allocation)
     const approved = expenses
-      .filter((expense) => !expense.additionalAllocationId)
+      .filter((expense) => !expense.additional_allocation_id)
       .reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Calculate with allocation
     const withAllocation = expenses
-      .filter((expense) => expense.additionalAllocationId)
+      .filter((expense) => expense.additional_allocation_id)
       .reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     const summary = {

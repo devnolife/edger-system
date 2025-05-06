@@ -92,7 +92,7 @@ export async function getRecentTransactions(limit = 5): Promise<{
   try {
     // Get recent expenses
     const expenses = await prisma.expense.findMany({
-      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+      orderBy: [{ date: "desc" }, { submitted_at: "desc" }],
       take: limit,
     })
 

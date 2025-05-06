@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 
-// Define the expense transaction type with budget information
+// Define the expen se transaction type with budget information
 export interface ExpenseTransaction {
   id: string
   date: string
@@ -31,7 +31,7 @@ export async function getExpensesWithBudget() {
       include: {
         budget: true,
       },
-      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+      orderBy: [{ date: "desc" }, { submitted_at: "desc" }],
     })
 
     // Map the database results to our ExpenseTransaction interface
@@ -39,12 +39,12 @@ export async function getExpensesWithBudget() {
       id: expense.id,
       date: expense.date.toLocaleDateString("id-ID"),
       reference: expense.id, // Using ID as reference
-      budgetId: expense.budgetId,
+      budgetId: expense.budget_id,
       budgetName: expense.budget.name,
       amount: Number(expense.amount),
       description: expense.description,
-      submittedBy: expense.submittedBy,
-      submittedAt: expense.submittedAt.toLocaleString("id-ID"),
+      submittedBy: expense.submitted_by,
+      submittedAt: expense.submitted_at.toLocaleString("id-ID"),
       notes: expense.notes || undefined,
     }))
 
@@ -109,23 +109,23 @@ export async function getExpenseSummary() {
 export async function getExpensesByBudget(budgetId: string) {
   try {
     const expenses = await prisma.expense.findMany({
-      where: { budgetId },
+      where: { budget_id: budgetId },
       include: {
         budget: true,
       },
-      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+      orderBy: [{ date: "desc" }, { submitted_at: "desc" }],
     })
 
     const formattedExpenses: ExpenseTransaction[] = expenses.map((expense) => ({
       id: expense.id,
       date: expense.date.toLocaleDateString("id-ID"),
       reference: expense.id, // Using ID as reference
-      budgetId: expense.budgetId,
+      budgetId: expense.budget_id,
       budgetName: expense.budget.name,
       amount: Number(expense.amount),
       description: expense.description,
-      submittedBy: expense.submittedBy,
-      submittedAt: expense.submittedAt.toLocaleString("id-ID"),
+      submittedBy: expense.submitted_by,
+      submittedAt: expense.submitted_at.toLocaleString("id-ID"),
       notes: expense.notes || undefined,
     }))
 
@@ -150,12 +150,12 @@ export async function getBudgetsWithExpenses() {
       include: {
         budget: true,
       },
-      distinct: ["budgetId"],
+      distinct: ["budget_id"],
     })
 
     // Extract unique budgets
     const budgets = expenses.map((expense) => ({
-      id: expense.budgetId,
+      id: expense.budget_id,
       name: expense.budget.name,
     }))
 

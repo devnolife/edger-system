@@ -75,15 +75,15 @@ export async function createAdditionalAllocation(formData: FormData) {
     await prisma.additionalAllocation.create({
       data: {
         id,
-        originalBudgetId: validatedData.originalBudgetId,
+        original_budget_id: validatedData.originalBudgetId,
         description: validatedData.description,
         reason: validatedData.reason,
         amount: new Prisma.Decimal(validatedData.amount),
-        requestDate: formatDateForDB(validatedData.requestDate),
-        requestedBy: validatedData.requestedBy,
-        relatedExpenseId: validatedData.relatedExpenseId,
-        approvedBy: validatedData.requestedBy,
-        approvedAt: new Date(),
+        request_date: formatDateForDB(validatedData.requestDate),
+        requested_by: validatedData.requestedBy,
+        related_expense_id: validatedData.relatedExpenseId,
+        approved_by: validatedData.requestedBy,
+        approved_at: new Date(),
       },
     })
 
@@ -162,11 +162,11 @@ export async function updateAdditionalAllocation(formData: FormData) {
     await prisma.additionalAllocation.update({
       where: { id: validatedData.id },
       data: {
-        originalBudgetId: validatedData.originalBudgetId,
+        original_budget_id: validatedData.originalBudgetId,
         description: validatedData.description,
         reason: validatedData.reason,
         amount: new Prisma.Decimal(validatedData.amount),
-        requestDate: formatDateForDB(validatedData.requestDate),
+        request_date: formatDateForDB(validatedData.requestDate),
       },
     })
 
@@ -202,14 +202,14 @@ export async function deleteAdditionalAllocation(id: string) {
 
     // Check if there are any expenses using this allocation
     const expensesCount = await prisma.expense.count({
-      where: { additionalAllocationId: id },
+      where: { additional_allocation_id: id },
     })
 
     if (expensesCount > 0) {
       // Update expenses to remove the allocation reference
       await prisma.expense.updateMany({
-        where: { additionalAllocationId: id },
-        data: { additionalAllocationId: null },
+        where: { additional_allocation_id: id },
+        data: { additional_allocation_id: null },
       })
     }
 
@@ -238,12 +238,8 @@ export async function getAdditionalAllocations() {
   try {
     // Get all allocations with their related budget
     const allocations = await prisma.additionalAllocation.findMany({
-      include: {
-        originalBudget: true,
-      },
-      orderBy: {
-        requestedAt: "desc",
-      },
+      include: { original_budget: true },
+      orderBy: { request_date: 'desc' },
     })
 
     // If no allocations, return empty array
@@ -257,7 +253,7 @@ export async function getAdditionalAllocations() {
     // Get all expenses related to these allocations
     const expenses = await prisma.expense.findMany({
       where: {
-        additionalAllocationId: {
+        additional_allocation_id: {
           in: allocationIds,
         },
       },
@@ -266,7 +262,7 @@ export async function getAdditionalAllocations() {
     // Create a map of allocation_id to spent amount
     const spentAmountMap = new Map<string, number>()
     expenses.forEach((expense) => {
-      const allocationId = expense.additionalAllocationId
+      const allocationId = expense.additional_allocation_id
       if (allocationId) {
         const currentAmount = spentAmountMap.get(allocationId) || 0
         spentAmountMap.set(allocationId, currentAmount + Number(expense.amount))
@@ -280,17 +276,17 @@ export async function getAdditionalAllocations() {
 
       return {
         id: allocation.id,
-        originalBudgetId: allocation.originalBudgetId,
-        originalBudgetName: allocation.originalBudget.name,
+        originalBudgetId: allocation.original_budget_id,
+        originalBudgetName: allocation.original_budget.name,
         description: allocation.description,
         reason: allocation.reason,
         amount: Number(allocation.amount),
-        requestDate: allocation.requestDate.toISOString().split("T")[0],
-        requestedBy: allocation.requestedBy,
-        requestedAt: allocation.requestedAt.toISOString(),
-        approvedBy: allocation.approvedBy || undefined,
-        approvedAt: allocation.approvedAt?.toISOString() || undefined,
-        relatedExpenseId: allocation.relatedExpenseId || undefined,
+        requestDate: allocation.request_date.toISOString().split("T")[0],
+        requestedBy: allocation.requested_by,
+        requestedAt: allocation.requested_at.toISOString(),
+        approvedBy: allocation.approved_by || undefined,
+        approvedAt: allocation.approved_at?.toISOString() || undefined,
+        relatedExpenseId: allocation.related_expense_id || undefined,
         spentAmount,
         availableAmount,
       }
@@ -312,9 +308,7 @@ export async function getAdditionalAllocationById(id: string) {
     // Get the allocation with its related budget
     const allocation = await prisma.additionalAllocation.findUnique({
       where: { id },
-      include: {
-        originalBudget: true,
-      },
+      include: { original_budget: true },
     })
 
     if (!allocation) {
@@ -323,7 +317,7 @@ export async function getAdditionalAllocationById(id: string) {
 
     // Calculate spent amount from expenses that use this allocation
     const expenses = await prisma.expense.findMany({
-      where: { additionalAllocationId: id },
+      where: { additional_allocation_id: id },
     })
 
     const spentAmount = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
@@ -333,9 +327,9 @@ export async function getAdditionalAllocationById(id: string) {
 
     // If there's a related expense, get its details
     let relatedExpense = null
-    if (allocation.relatedExpenseId) {
+    if (allocation.related_expense_id) {
       const expense = await prisma.expense.findUnique({
-        where: { id: allocation.relatedExpenseId },
+        where: { id: allocation.related_expense_id },
       })
 
       if (expense) {
@@ -351,17 +345,17 @@ export async function getAdditionalAllocationById(id: string) {
       success: true,
       allocation: {
         id: allocation.id,
-        originalBudgetId: allocation.originalBudgetId,
-        originalBudgetName: allocation.originalBudget.name,
+        originalBudgetId: allocation.original_budget_id,
+        originalBudgetName: allocation.original_budget.name,
         description: allocation.description,
         reason: allocation.reason,
         amount: Number(allocation.amount),
-        requestDate: allocation.requestDate.toISOString().split("T")[0],
-        requestedBy: allocation.requestedBy,
-        requestedAt: allocation.requestedAt.toISOString(),
-        approvedBy: allocation.approvedBy || undefined,
-        approvedAt: allocation.approvedAt?.toISOString() || undefined,
-        relatedExpenseId: allocation.relatedExpenseId || undefined,
+        requestDate: allocation.request_date.toISOString().split("T")[0],
+        requestedBy: allocation.requested_by,
+        requestedAt: allocation.requested_at.toISOString(),
+        approvedBy: allocation.approved_by || undefined,
+        approvedAt: allocation.approved_at?.toISOString() || undefined,
+        relatedExpenseId: allocation.related_expense_id || undefined,
         spentAmount,
         availableAmount,
         relatedExpense,

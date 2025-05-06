@@ -90,9 +90,9 @@ export async function createBudget(formData: FormData) {
         id,
         name,
         amount: new Prisma.Decimal(amount),
-        startDate: formattedDate,
+        start_date: formattedDate,
         description,
-        createdBy,
+        created_by: createdBy,
       },
     })
 
@@ -118,7 +118,7 @@ export async function getBudgets() {
         expenses: true,
       },
       orderBy: {
-        createdAt: "desc",
+        created_at: "desc",
       },
     })
 
@@ -130,9 +130,9 @@ export async function getBudgets() {
         id: budget.id,
         name: budget.name,
         amount: Number(budget.amount),
-        startDate: budget.startDate.toLocaleDateString("id-ID"),
-        createdBy: budget.createdBy,
-        createdAt: budget.createdAt.toLocaleDateString("id-ID"),
+        startDate: budget.start_date.toLocaleDateString("id-ID"),
+        createdBy: budget.created_by,
+        createdAt: budget.created_at.toLocaleDateString("id-ID"),
         spentAmount,
         availableAmount: Number(budget.amount) - spentAmount,
         description: budget.description || undefined,
@@ -158,7 +158,7 @@ export async function getBudgetById(id: string) {
       where: { id },
       include: {
         expenses: true,
-        additionalAllocations: true,
+        additional_allocations: true,
       },
     })
 
@@ -170,7 +170,7 @@ export async function getBudgetById(id: string) {
     const spentAmount = budget.expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Calculate additional allocations
-    const additionalAmount = budget.additionalAllocations.reduce(
+    const additionalAmount = budget.additional_allocations.reduce(
       (sum, allocation) => sum + Number(allocation.amount),
       0,
     )
@@ -184,10 +184,10 @@ export async function getBudgetById(id: string) {
         id: budget.id,
         name: budget.name,
         amount: Number(budget.amount),
-        startDate: budget.startDate.toLocaleDateString("id-ID"),
+        start_date: budget.start_date.toLocaleDateString("id-ID"),
         description: budget.description || undefined,
-        createdBy: budget.createdBy,
-        createdAt: budget.createdAt.toLocaleDateString("id-ID"),
+        created_by: budget.created_by,
+        created_at: budget.created_at.toLocaleDateString("id-ID"),
         spentAmount,
         availableAmount,
         additionalAmount,
@@ -231,7 +231,7 @@ export async function updateBudget(id: string, formData: FormData) {
         name: validatedData.name,
         amount: new Prisma.Decimal(validatedData.amount),
         description: validatedData.description,
-        updatedAt: new Date(),
+        updated_at: new Date(),
       },
     })
 
@@ -253,7 +253,7 @@ export async function deleteBudget(id: string) {
   try {
     // Check if there are any expenses associated with this budget
     const expensesCount = await prisma.expense.count({
-      where: { budgetId: id },
+      where: { budget_id: id },
     })
 
     if (expensesCount > 0) {
@@ -265,7 +265,7 @@ export async function deleteBudget(id: string) {
 
     // Check if there are any additional allocations associated with this budget
     const allocationsCount = await prisma.additionalAllocation.count({
-      where: { originalBudgetId: id },
+      where: { original_budget_id: id },
     })
 
     if (allocationsCount > 0) {
@@ -300,12 +300,12 @@ export async function deleteBudgetWithExpenses(id: string) {
     const result = await prisma.$transaction(async (tx) => {
       // First delete all expenses associated with this budget
       const deletedExpenses = await tx.expense.deleteMany({
-        where: { budgetId: id },
+        where: { budget_id: id },
       })
 
       // Then delete any additional allocations associated with this budget
       const deletedAllocations = await tx.additionalAllocation.deleteMany({
-        where: { originalBudgetId: id },
+        where: { original_budget_id: id },
       })
 
       // Finally delete the budget itself
@@ -344,7 +344,7 @@ export async function getBudgetSummary() {
     const budgets = await prisma.budget.findMany({
       include: {
         expenses: true,
-        additionalAllocations: true,
+        additional_allocations: true,
       },
     })
 
@@ -360,7 +360,7 @@ export async function getBudgetSummary() {
         totalSpent += Number(expense.amount)
       })
 
-      budget.additionalAllocations.forEach((allocation) => {
+      budget.additional_allocations.forEach((allocation) => {
         totalAdditional += Number(allocation.amount)
       })
     })

@@ -1,0 +1,19 @@
+# Database
+DATABASE_URL="postgresql://username:password@localhost:5432/mydb?schema=public"
+
+# Next.js
+NEXT_PUBLIC_API_URL="http://localhost:3000/api"
+
+# Authentication (if needed)
+# JWT_SECRET="your-jwt-secret"
+# NEXTAUTH_URL="http://localhost:3000"
+# NEXTAUTH_SECRET="your-nextauth-secret"
+
+# API Keys (if needed)
+# STRIPE_SECRET_KEY="your-stripe-secret-key"
+# STRIPE_WEBHOOK_SECRET="your-stripe-webhook-secret"
+
+# Storage (for image uploads)
+# NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME="your-cloud-name"
+# CLOUDINARY_API_KEY="your-api-key"
+# CLOUDINARY_API_SECRET="your-api-secret" 

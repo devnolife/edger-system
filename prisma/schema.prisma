@@ -12,75 +12,94 @@ datasource db {
 
 // Budget model
 model Budget {
-  id          String   @id
+  id          String    @id
   name        String
-  amount      Decimal  @db.Decimal(15, 2)
-  startDate   DateTime @map("start_date") @db.Date
+  amount      Decimal   @db.Decimal(15, 2)
+  start_date  DateTime  @db.Date
   description String?
-  createdBy   String   @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime? @map("updated_at")
+  created_by  String
+  created_at  DateTime  @default(now())
+  updated_at  DateTime?
 
   // Relations
-  expenses              Expense[]
-  additionalAllocations AdditionalAllocation[]
+  expenses               Expense[]
+  additional_allocations AdditionalAllocation[]
+  budget_usage_history   BudgetUsageHistory[]
 
   @@map("budgets")
 }
 
 // Expense model
 model Expense {
-  id                    String   @id
-  budgetId              String   @map("budget_id")
-  description           String
-  amount                Decimal  @db.Decimal(15, 2)
-  date                  DateTime @db.Date
-  submittedBy           String   @map("submitted_by")
-  submittedAt           DateTime @default(now()) @map("submitted_at")
-  notes                 String?
-  additionalAllocationId String? @map("additional_allocation_id")
-  imageUrl              String?  @map("image_url")
+  id                       String   @id
+  budget_id                String
+  description              String
+  amount                   Decimal  @db.Decimal(15, 2)
+  date                     DateTime @db.Date
+  submitted_by             String
+  submitted_at             DateTime @default(now())
+  notes                    String?
+  additional_allocation_id String?
+  image_url                String?
 
   // Relations
-  budget               Budget                @relation(fields: [budgetId], references: [id])
-  additionalAllocation AdditionalAllocation? @relation(fields: [additionalAllocationId], references: [id])
-  budgetUsageHistory   BudgetUsageHistory[]
+  budget                Budget                @relation(fields: [budget_id], references: [id])
+  additional_allocation AdditionalAllocation? @relation(fields: [additional_allocation_id], references: [id])
+  budget_usage_history  BudgetUsageHistory[]
 
   @@map("expenses")
 }
 
 // Additional Allocation model
 model AdditionalAllocation {
-  id               String   @id
-  originalBudgetId String   @map("original_budget_id")
-  description      String
-  reason           String
-  amount           Decimal  @db.Decimal(15, 2)
-  requestDate      DateTime @map("request_date") @db.Date
-  requestedBy      String   @map("requested_by")
-  requestedAt      DateTime @default(now()) @map("requested_at")
-  approvedBy       String?  @map("approved_by")
-  approvedAt       DateTime? @map("approved_at")
-  relatedExpenseId String?  @map("related_expense_id")
+  id                 String    @id
+  original_budget_id String
+  description        String
+  reason             String
+  amount             Decimal   @db.Decimal(15, 2)
+  request_date       DateTime  @db.Date
+  requested_by       String
+  requested_at       DateTime  @default(now())
+  approved_by        String?
+  approved_at        DateTime?
+  related_expense_id String?
 
   // Relations
-  originalBudget Budget    @relation(fields: [originalBudgetId], references: [id])
-  expenses       Expense[]
+  original_budget Budget    @relation(fields: [original_budget_id], references: [id])
+  expenses        Expense[]
 
   @@map("additional_allocations")
 }
 
 // Budget Usage History model
 model BudgetUsageHistory {
-  id         Int      @id @default(autoincrement())
-  budgetId   String   @map("budget_id")
-  expenseId  String   @map("expense_id")
-  amount     Decimal  @db.Decimal(15, 2)
-  recordedAt DateTime @default(now()) @map("recorded_at")
+  id          Int      @id @default(autoincrement())
+  budget_id   String
+  expense_id  String
+  amount      Decimal  @db.Decimal(15, 2)
+  recorded_at DateTime @default(now())
 
   // Relations
-  budget  Budget  @relation(fields: [budgetId], references: [id])
-  expense Expense @relation(fields: [expenseId], references: [id])
+  budget  Budget  @relation(fields: [budget_id], references: [id])
+  expense Expense @relation(fields: [expense_id], references: [id])
 
   @@map("budget_usage_history")
+}
+
+// Role enum for user roles
+enum Role {
+  ADMIN
+  USER
+}
+
+// User model for authentication
+model User {
+  id         String    @id @default(uuid())
+  username   String    @unique
+  password   String
+  role       Role      @default(USER)
+  created_at DateTime  @default(now())
+  updated_at DateTime?
+
+  @@map("users")
 }
