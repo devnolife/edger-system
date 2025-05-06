@@ -1,17 +1,16 @@
 import { neon } from "@neondatabase/serverless"
 import { drizzle } from "drizzle-orm/neon-http"
+import * as schema from "./schema"
 
-// Update the SQL client initialization to handle missing DATABASE_URL
-// by providing a fallback or better error handling
-// Check if DATABASE_URL is available and provide a fallback for development
+// Gunakan connection string dari environment variable atau fallback
 const connectionString =
   process.env.DATABASE_URL || process.env.POSTGRES_URL || "postgresql://postgres:postgres@localhost:5432/sikepro"
 
+// Inisialisasi SQL client dengan konfigurasi
 export const sql = neon(connectionString, {
   fetchOptions: {
     cache: "no-store",
   },
-  // Add exponential backoff for retries
   retryOptions: {
     retries: 3,
     factor: 2,
@@ -20,10 +19,10 @@ export const sql = neon(connectionString, {
   },
 })
 
-// Initialize the Drizzle ORM instance
-export const db = drizzle(sql)
+// Inisialisasi Drizzle ORM dengan schema
+export const db = drizzle(sql, { schema })
 
-// Helper function to format date for SQL
+// Helper function untuk format tanggal untuk SQL
 export function formatDateForSQL(date: Date | string): string {
   if (typeof date === "string") {
     return date
@@ -31,7 +30,7 @@ export function formatDateForSQL(date: Date | string): string {
   return date.toISOString().split("T")[0]
 }
 
-// Helper function to generate unique IDs
+// Helper function untuk generate ID unik
 export function generateId(prefix: string): string {
   const date = new Date()
   const year = date.getFullYear()
@@ -41,7 +40,7 @@ export function generateId(prefix: string): string {
   return `${prefix}-${year}-${random}`
 }
 
-// Add this function to your existing db.ts file
+// Function untuk execute query dengan retry
 export async function executeQueryWithRetry<T>(queryFn: () => Promise<T>, maxRetries = 3): Promise<T> {
   let retryCount = 0
   let lastError: any = null

@@ -88,7 +88,9 @@
     "@op-engineering/op-sqlite": "latest",
     "framer-motion": "latest",
     "@vercel/blob": "latest",
-    "drizzle-orm": "latest"
+    "drizzle-orm": "latest",
+    "drizzle-kit": "latest",
+    "dotenv": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -1,13 +1,12 @@
 "use server"
 
-import { sql, generateId, formatDateForSQL, executeQueryWithRetry } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { db, generateId, formatDateForSQL } from "@/lib/db"
+import { eq, sql as sqlExpr } from "drizzle-orm"
+import { budgets, expenses, additionalAllocations } from "@/lib/schema"
 
-// Add import for the new db fallback utilities
-import { withDbErrorHandling } from "@/lib/db-fallback"
-
-// Define types - removed BudgetStatus type since it's no longer needed
+// Define types
 export interface Budget {
   id: string
   name: string
@@ -21,7 +20,7 @@ export interface Budget {
   additionalAmount?: number // Optional calculated field
 }
 
-// Validation schema for budget creation - removed status field
+// Validation schema for budget creation
 const budgetSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
   amount: z.number().positive("Amount must be positive"),
@@ -33,55 +32,16 @@ const budgetSchema = z.object({
 // Function to check if the budgets table exists
 async function ensureBudgetsTableExists() {
   try {
-    // Check if the table exists
-    const tableExists = await sql`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' AND table_name = 'budgets'
-      ) as exists
-    `
-
-    if (!tableExists[0]?.exists) {
-      // Create the table if it doesn't exist
-      await sql`
-        CREATE TABLE budgets (
-          id VARCHAR(255) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          amount DECIMAL(15, 2) NOT NULL,
-          start_date DATE NOT NULL,
-          description TEXT,
-          created_by VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP
-        )
-      `
-      console.log("Created budgets table")
-    }
-
+    // Dengan Drizzle, kita tidak perlu memeriksa keberadaan tabel secara manual
+    // karena migrasi akan menangani hal ini
     return true
   } catch (error) {
-    console.error("Error checking/creating budgets table:", error)
+    console.error("Error checking budgets table:", error)
     return false
   }
 }
 
-// Function to check if the status column exists in the budgets table
-async function checkStatusColumnExists() {
-  try {
-    const result = await sql`
-      SELECT EXISTS (
-        SELECT FROM information_schema.columns 
-        WHERE table_name = 'budgets' AND column_name = 'status'
-      ) as exists
-    `
-    return result[0]?.exists || false
-  } catch (error) {
-    console.error("Error checking status column:", error)
-    return true // Assume it exists if we can't check, to be safe
-  }
-}
-
-// Create a new budget - now handling the status column if it exists
+// Create a new budget
 export async function createBudget(formData: FormData) {
   try {
     // Ensure the budgets table exists
@@ -146,76 +106,16 @@ export async function createBudget(formData: FormData) {
     // Format the date properly
     const formattedDate = formatDateForSQL(creationDate)
 
-    // Check if the status column exists
-    const statusColumnExists = await checkStatusColumnExists()
-
-    // Log the data being inserted for debugging
-    console.log("Inserting budget:", {
+    // Insert budget using Drizzle ORM
+    await db.insert(budgets).values({
       id,
       name,
       amount,
-      startDate: formattedDate,
+      startDate: new Date(formattedDate),
       description,
       createdBy,
-      statusColumnExists,
+      createdAt: new Date(),
     })
-
-    // Use a transaction to ensure atomicity
-    try {
-      // Begin transaction
-      await sql`BEGIN`
-
-      // Insert into database - with or without status field based on column existence
-      if (statusColumnExists) {
-        await sql`
-          INSERT INTO budgets (
-            id, name, amount, start_date, 
-            description, created_by, status
-          ) VALUES (
-            ${id}, ${name}, ${amount}, 
-            ${formattedDate}, 
-            ${description}, ${createdBy}, 'active'
-          )
-        `
-      } else {
-        await sql`
-          INSERT INTO budgets (
-            id, name, amount, start_date, 
-            description, created_by
-          ) VALUES (
-            ${id}, ${name}, ${amount}, 
-            ${formattedDate}, 
-            ${description}, ${createdBy}
-          )
-        `
-      }
-
-      // Commit transaction
-      await sql`COMMIT`
-    } catch (error) {
-      // Rollback on error
-      await sql`ROLLBACK`
-      console.error("SQL Error during budget creation:", error)
-
-      // Check for specific error types
-      const errorMessage = error instanceof Error ? error.message : String(error)
-
-      if (errorMessage.includes("duplicate key")) {
-        return {
-          success: false,
-          error: "A budget with this ID already exists. Please try again.",
-        }
-      }
-
-      if (errorMessage.includes("violates not-null constraint")) {
-        return {
-          success: false,
-          error: "Missing required field. Please ensure all required fields are filled.",
-        }
-      }
-
-      throw error
-    }
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -230,116 +130,127 @@ export async function createBudget(formData: FormData) {
   }
 }
 
-// Update the getBudgets function to use the fallback mechanism
-// Find the getBudgets function and replace it with:
-
+// Get all budgets
 export async function getBudgets() {
-  const result = await withDbErrorHandling(async () => {
-    const budgets = await sql`
-      SELECT 
-        b.id, 
-        b.name, 
-        b.amount, 
-        TO_CHAR(b.start_date, 'DD-MM-YYYY') as start_date,
-        b.created_by,
-        TO_CHAR(b.created_at, 'DD-MM-YYYY') as created_at,
-        COALESCE(SUM(e.amount), 0) as spent_amount
-      FROM 
-        budgets b
-      LEFT JOIN 
-        expenses e ON b.id = e.budget_id
-      GROUP BY 
-        b.id, b.name, b.amount, b.start_date, b.created_by, b.created_at
-      ORDER BY 
-        b.created_at DESC
-    `
+  try {
+    // Get all budgets using Drizzle ORM
+    const budgetsData = await db.select().from(budgets).orderBy(budgets.createdAt)
 
-    return budgets.map((budget) => ({
-      id: budget.id,
-      name: budget.name,
-      amount: Number(budget.amount),
-      startDate: budget.start_date,
-      createdBy: budget.created_by,
-      createdAt: budget.created_at,
-      spentAmount: Number(budget.spent_amount),
-      availableAmount: Number(budget.amount) - Number(budget.spent_amount),
-    }))
-  }, "Failed to fetch budgets")
+    // If no budgets, return empty array
+    if (budgetsData.length === 0) {
+      return { success: true, budgets: [] }
+    }
 
-  if (!result.success) {
-    return { success: false, error: result.error, budgets: [] }
+    // Get all budget IDs
+    const budgetIds = budgetsData.map((budget) => budget.id)
+
+    // Get all expenses in a single query
+    const expensesResult = await db
+      .select({
+        budgetId: expenses.budgetId,
+        total: sqlExpr`SUM(${expenses.amount})::numeric`,
+      })
+      .from(expenses)
+      .where(sqlExpr`${expenses.budgetId} = ANY(${budgetIds})`)
+      .groupBy(expenses.budgetId)
+
+    // Create a map of budget_id to spent amount
+    const spentAmountMap = new Map<string, number>()
+    expensesResult.forEach((row) => {
+      spentAmountMap.set(row.budgetId, Number(row.total) || 0)
+    })
+
+    // Get all additional allocations in a single query
+    const allocationsResult = await db
+      .select({
+        originalBudgetId: additionalAllocations.originalBudgetId,
+        total: sqlExpr`SUM(${additionalAllocations.amount})::numeric`,
+      })
+      .from(additionalAllocations)
+      .where(sqlExpr`${additionalAllocations.originalBudgetId} = ANY(${budgetIds})`)
+      .groupBy(additionalAllocations.originalBudgetId)
+
+    // Create a map of budget_id to additional amount
+    const additionalAmountMap = new Map<string, number>()
+    allocationsResult.forEach((row) => {
+      additionalAmountMap.set(row.originalBudgetId, Number(row.total) || 0)
+    })
+
+    // Map the budgets with calculated fields
+    const budgetsWithCalculatedFields = budgetsData.map((budget) => {
+      const spentAmount = spentAmountMap.get(budget.id) || 0
+      const additionalAmount = additionalAmountMap.get(budget.id) || 0
+      const availableAmount = Number(budget.amount) + additionalAmount - spentAmount
+
+      return {
+        id: budget.id,
+        name: budget.name,
+        amount: Number(budget.amount),
+        startDate: budget.startDate instanceof Date ? budget.startDate.toISOString().split("T")[0] : budget.startDate,
+        description: budget.description || undefined,
+        createdBy: budget.createdBy,
+        createdAt: budget.createdAt instanceof Date ? budget.createdAt.toISOString() : budget.createdAt,
+        spentAmount,
+        availableAmount,
+        additionalAmount,
+      }
+    })
+
+    return { success: true, budgets: budgetsWithCalculatedFields }
+  } catch (error) {
+    console.error("Error fetching budgets:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    }
   }
-
-  return { success: true, budgets: result.data || [] }
 }
 
-// Get a single budget by ID with calculated fields - removed status references
+// Get a single budget by ID with calculated fields
 export async function getBudgetById(id: string) {
   try {
-    // Get the budget
-    const budgets = await executeQueryWithRetry(
-      () => sql<
-        {
-          id: string
-          name: string
-          amount: number
-          start_date: string
-          description: string | null
-          created_by: string
-          created_at: string
-        }[]
-      >`
-      SELECT * FROM budgets WHERE id = ${id}
-    `,
-    )
+    // Get the budget using Drizzle ORM
+    const budgetResult = await db.select().from(budgets).where(eq(budgets.id, id)).limit(1)
 
-    if (budgets.length === 0) {
+    if (budgetResult.length === 0) {
       return { success: false, error: "Budget not found" }
     }
 
-    const budget = budgets[0]
-
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    const budget = budgetResult[0]
 
     // Calculate spent amount from expenses
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE budget_id = ${budget.id}
-    `,
-    )
+    const expensesResult = await db
+      .select({
+        total: sqlExpr`COALESCE(SUM(${expenses.amount}), 0)::numeric`,
+      })
+      .from(expenses)
+      .where(eq(expenses.budgetId, budget.id))
 
     const spentAmount = Number(expensesResult[0]?.total || 0)
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
     // Calculate additional allocations
-    const allocationsResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM additional_allocations 
-      WHERE original_budget_id = ${budget.id}
-    `,
-    )
+    const allocationsResult = await db
+      .select({
+        total: sqlExpr`COALESCE(SUM(${additionalAllocations.amount}), 0)::numeric`,
+      })
+      .from(additionalAllocations)
+      .where(eq(additionalAllocations.originalBudgetId, budget.id))
 
     const additionalAmount = Number(allocationsResult[0]?.total || 0)
 
     // Calculate available amount
-    const availableAmount = budget.amount + additionalAmount - spentAmount
+    const availableAmount = Number(budget.amount) + additionalAmount - spentAmount
 
     return {
       success: true,
       budget: {
         id: budget.id,
         name: budget.name,
-        amount: budget.amount,
-        startDate: budget.start_date,
+        amount: Number(budget.amount),
+        startDate: budget.startDate instanceof Date ? budget.startDate.toISOString().split("T")[0] : budget.startDate,
         description: budget.description || undefined,
-        createdBy: budget.created_by,
-        createdAt: budget.created_at,
+        createdBy: budget.createdBy,
+        createdAt: budget.createdAt instanceof Date ? budget.createdAt.toISOString() : budget.createdAt,
         spentAmount,
         availableAmount,
         additionalAmount,
@@ -355,7 +266,7 @@ export async function getBudgetById(id: string) {
   }
 }
 
-// Update a budget - removed status field
+// Update a budget
 export async function updateBudget(id: string, formData: FormData) {
   try {
     // Extract and validate data
@@ -376,16 +287,16 @@ export async function updateBudget(id: string, formData: FormData) {
         description,
       })
 
-    // Update in database - removed status field
-    await sql`
-      UPDATE budgets 
-      SET 
-        name = ${validatedData.name}, 
-        amount = ${validatedData.amount}, 
-        description = ${validatedData.description},
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
-    `
+    // Update in database using Drizzle ORM
+    await db
+      .update(budgets)
+      .set({
+        name: validatedData.name,
+        amount: validatedData.amount,
+        description: validatedData.description,
+        updatedAt: new Date(),
+      })
+      .where(eq(budgets.id, id))
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -400,15 +311,18 @@ export async function updateBudget(id: string, formData: FormData) {
   }
 }
 
-// Delete a budget - no changes needed here
+// Delete a budget
 export async function deleteBudget(id: string) {
   try {
     // Check if there are any expenses associated with this budget
-    const expensesResult = await sql<{ count: number }[]>`
-      SELECT COUNT(*) as count FROM expenses WHERE budget_id = ${id}
-    `
+    const expensesCount = await db
+      .select({
+        count: sqlExpr`COUNT(*)`,
+      })
+      .from(expenses)
+      .where(eq(expenses.budgetId, id))
 
-    if (Number.parseInt(expensesResult[0]?.count.toString() || "0") > 0) {
+    if (Number(expensesCount[0]?.count || 0) > 0) {
       return {
         success: false,
         error: "Cannot delete budget with associated expenses. Please delete the expenses first.",
@@ -416,19 +330,22 @@ export async function deleteBudget(id: string) {
     }
 
     // Check if there are any additional allocations associated with this budget
-    const allocationsResult = await sql<{ count: number }[]>`
-      SELECT COUNT(*) as count FROM additional_allocations WHERE original_budget_id = ${id}
-    `
+    const allocationsCount = await db
+      .select({
+        count: sqlExpr`COUNT(*)`,
+      })
+      .from(additionalAllocations)
+      .where(eq(additionalAllocations.originalBudgetId, id))
 
-    if (Number.parseInt(allocationsResult[0]?.count.toString() || "0") > 0) {
+    if (Number(allocationsCount[0]?.count || 0) > 0) {
       return {
         success: false,
         error: "Cannot delete budget with associated additional allocations. Please delete the allocations first.",
       }
     }
 
-    // Delete from database
-    await sql`DELETE FROM budgets WHERE id = ${id}`
+    // Delete from database using Drizzle ORM
+    await db.delete(budgets).where(eq(budgets.id, id))
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -446,53 +363,35 @@ export async function deleteBudget(id: string) {
 // Delete a budget along with all associated expenses
 export async function deleteBudgetWithExpenses(id: string) {
   try {
-    // Use a transaction to ensure atomicity
-    await sql`BEGIN`
+    // Delete all expenses associated with this budget
+    const deleteExpensesResult = await db.delete(expenses).where(eq(expenses.budgetId, id)).returning()
+    const deletedExpensesCount = deleteExpensesResult.length
 
-    try {
-      // First delete all expenses associated with this budget
-      const deleteExpensesResult = await sql`
-        DELETE FROM expenses WHERE budget_id = ${id}
-      `
+    // Delete any additional allocations associated with this budget
+    const deleteAllocationsResult = await db
+      .delete(additionalAllocations)
+      .where(eq(additionalAllocations.originalBudgetId, id))
+      .returning()
+    const deletedAllocationsCount = deleteAllocationsResult.length
 
-      console.log(`Deleted ${deleteExpensesResult.count} expenses associated with budget ${id}`)
+    // Delete the budget itself
+    const deleteBudgetResult = await db.delete(budgets).where(eq(budgets.id, id)).returning()
 
-      // Then delete any additional allocations associated with this budget
-      const deleteAllocationsResult = await sql`
-        DELETE FROM additional_allocations WHERE original_budget_id = ${id}
-      `
-
-      console.log(`Deleted ${deleteAllocationsResult.count} allocations associated with budget ${id}`)
-
-      // Finally delete the budget itself
-      const deleteBudgetResult = await sql`
-        DELETE FROM budgets WHERE id = ${id}
-      `
-
-      if (deleteBudgetResult.count === 0) {
-        await sql`ROLLBACK`
-        return {
-          success: false,
-          error: "Budget not found",
-        }
-      }
-
-      // Commit the transaction
-      await sql`COMMIT`
-
-      // Revalidate the budgets page to reflect the changes
-      revalidatePath("/anggaran")
-      revalidatePath("/pengeluaran")
-
+    if (deleteBudgetResult.length === 0) {
       return {
-        success: true,
-        deletedExpenses: deleteExpensesResult.count,
-        deletedAllocations: deleteAllocationsResult.count,
+        success: false,
+        error: "Budget not found",
       }
-    } catch (error) {
-      // Rollback on error
-      await sql`ROLLBACK`
-      throw error
+    }
+
+    // Revalidate the budgets page to reflect the changes
+    revalidatePath("/anggaran")
+    revalidatePath("/pengeluaran")
+
+    return {
+      success: true,
+      deletedExpenses: deletedExpensesCount,
+      deletedAllocations: deletedAllocationsCount,
     }
   } catch (error) {
     console.error("Error deleting budget with expenses:", error)
@@ -503,43 +402,35 @@ export async function deleteBudgetWithExpenses(id: string) {
   }
 }
 
-// Get budget summary - removed status filtering
+// Get budget summary
 export async function getBudgetSummary() {
   try {
     // Get total budget amount
-    const totalBudgetResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM budgets
-    `,
-    )
+    const totalBudgetResult = await db
+      .select({
+        total: sqlExpr`COALESCE(SUM(${budgets.amount}), 0)::numeric`,
+      })
+      .from(budgets)
 
     const totalBudget = Number(totalBudgetResult[0]?.total || 0)
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
     // Get total spent amount
-    const totalSpentResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(e.amount), 0) as total 
-      FROM expenses e 
-      JOIN budgets b ON e.budget_id = b.id
-    `,
-    )
+    const totalSpentResult = await db
+      .select({
+        total: sqlExpr`COALESCE(SUM(${expenses.amount}), 0)::numeric`,
+      })
+      .from(expenses)
+      .innerJoin(budgets, eq(expenses.budgetId, budgets.id))
 
     const totalSpent = Number(totalSpentResult[0]?.total || 0)
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
     // Get total additional allocations
-    const totalAdditionalResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(a.amount), 0) as total 
-      FROM additional_allocations a 
-      JOIN budgets b ON a.original_budget_id = b.id
-    `,
-    )
+    const totalAdditionalResult = await db
+      .select({
+        total: sqlExpr`COALESCE(SUM(${additionalAllocations.amount}), 0)::numeric`,
+      })
+      .from(additionalAllocations)
+      .innerJoin(budgets, eq(additionalAllocations.originalBudgetId, budgets.id))
 
     const totalAdditional = Number(totalAdditionalResult[0]?.total || 0)
 
