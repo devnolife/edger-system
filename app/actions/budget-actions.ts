@@ -1,10 +1,9 @@
 "use server"
 
+import { prisma, generateId, formatDateForDB } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { db, generateId, formatDateForSQL } from "@/lib/db"
-import { eq, sql as sqlExpr } from "drizzle-orm"
-import { budgets, expenses, additionalAllocations } from "@/lib/schema"
+import { Prisma } from "@prisma/client"
 
 // Define types
 export interface Budget {
@@ -29,30 +28,9 @@ const budgetSchema = z.object({
   createdBy: z.string().min(1, "Creator is required"),
 })
 
-// Function to check if the budgets table exists
-async function ensureBudgetsTableExists() {
-  try {
-    // Dengan Drizzle, kita tidak perlu memeriksa keberadaan tabel secara manual
-    // karena migrasi akan menangani hal ini
-    return true
-  } catch (error) {
-    console.error("Error checking budgets table:", error)
-    return false
-  }
-}
-
 // Create a new budget
 export async function createBudget(formData: FormData) {
   try {
-    // Ensure the budgets table exists
-    const tableExists = await ensureBudgetsTableExists()
-    if (!tableExists) {
-      return {
-        success: false,
-        error: "Failed to ensure budgets table exists. Please check database connection.",
-      }
-    }
-
     // Extract and validate data
     const name = formData.get("name") as string
     const amountStr = formData.get("amount") as string
@@ -104,17 +82,18 @@ export async function createBudget(formData: FormData) {
     const id = generateId("BDG")
 
     // Format the date properly
-    const formattedDate = formatDateForSQL(creationDate)
+    const formattedDate = formatDateForDB(creationDate)
 
-    // Insert budget using Drizzle ORM
-    await db.insert(budgets).values({
-      id,
-      name,
-      amount,
-      startDate: new Date(formattedDate),
-      description,
-      createdBy,
-      createdAt: new Date(),
+    // Create budget using Prisma
+    await prisma.budget.create({
+      data: {
+        id,
+        name,
+        amount: new Prisma.Decimal(amount),
+        startDate: formattedDate,
+        description,
+        createdBy,
+      },
     })
 
     // Revalidate the budgets page to reflect the changes
@@ -133,75 +112,40 @@ export async function createBudget(formData: FormData) {
 // Get all budgets
 export async function getBudgets() {
   try {
-    // Get all budgets using Drizzle ORM
-    const budgetsData = await db.select().from(budgets).orderBy(budgets.createdAt)
-
-    // If no budgets, return empty array
-    if (budgetsData.length === 0) {
-      return { success: true, budgets: [] }
-    }
-
-    // Get all budget IDs
-    const budgetIds = budgetsData.map((budget) => budget.id)
-
-    // Get all expenses in a single query
-    const expensesResult = await db
-      .select({
-        budgetId: expenses.budgetId,
-        total: sqlExpr`SUM(${expenses.amount})::numeric`,
-      })
-      .from(expenses)
-      .where(sqlExpr`${expenses.budgetId} = ANY(${budgetIds})`)
-      .groupBy(expenses.budgetId)
-
-    // Create a map of budget_id to spent amount
-    const spentAmountMap = new Map<string, number>()
-    expensesResult.forEach((row) => {
-      spentAmountMap.set(row.budgetId, Number(row.total) || 0)
+    // Get all budgets with their expenses
+    const budgets = await prisma.budget.findMany({
+      include: {
+        expenses: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     })
 
-    // Get all additional allocations in a single query
-    const allocationsResult = await db
-      .select({
-        originalBudgetId: additionalAllocations.originalBudgetId,
-        total: sqlExpr`SUM(${additionalAllocations.amount})::numeric`,
-      })
-      .from(additionalAllocations)
-      .where(sqlExpr`${additionalAllocations.originalBudgetId} = ANY(${budgetIds})`)
-      .groupBy(additionalAllocations.originalBudgetId)
-
-    // Create a map of budget_id to additional amount
-    const additionalAmountMap = new Map<string, number>()
-    allocationsResult.forEach((row) => {
-      additionalAmountMap.set(row.originalBudgetId, Number(row.total) || 0)
-    })
-
-    // Map the budgets with calculated fields
-    const budgetsWithCalculatedFields = budgetsData.map((budget) => {
-      const spentAmount = spentAmountMap.get(budget.id) || 0
-      const additionalAmount = additionalAmountMap.get(budget.id) || 0
-      const availableAmount = Number(budget.amount) + additionalAmount - spentAmount
+    // Format the budgets with calculated fields
+    const formattedBudgets: Budget[] = budgets.map((budget) => {
+      const spentAmount = budget.expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
       return {
         id: budget.id,
         name: budget.name,
         amount: Number(budget.amount),
-        startDate: budget.startDate instanceof Date ? budget.startDate.toISOString().split("T")[0] : budget.startDate,
-        description: budget.description || undefined,
+        startDate: budget.startDate.toLocaleDateString("id-ID"),
         createdBy: budget.createdBy,
-        createdAt: budget.createdAt instanceof Date ? budget.createdAt.toISOString() : budget.createdAt,
+        createdAt: budget.createdAt.toLocaleDateString("id-ID"),
         spentAmount,
-        availableAmount,
-        additionalAmount,
+        availableAmount: Number(budget.amount) - spentAmount,
+        description: budget.description || undefined,
       }
     })
 
-    return { success: true, budgets: budgetsWithCalculatedFields }
+    return { success: true, budgets: formattedBudgets }
   } catch (error) {
     console.error("Error fetching budgets:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",
+      budgets: [],
     }
   }
 }
@@ -209,34 +153,27 @@ export async function getBudgets() {
 // Get a single budget by ID with calculated fields
 export async function getBudgetById(id: string) {
   try {
-    // Get the budget using Drizzle ORM
-    const budgetResult = await db.select().from(budgets).where(eq(budgets.id, id)).limit(1)
+    // Get the budget with its expenses and additional allocations
+    const budget = await prisma.budget.findUnique({
+      where: { id },
+      include: {
+        expenses: true,
+        additionalAllocations: true,
+      },
+    })
 
-    if (budgetResult.length === 0) {
+    if (!budget) {
       return { success: false, error: "Budget not found" }
     }
 
-    const budget = budgetResult[0]
-
     // Calculate spent amount from expenses
-    const expensesResult = await db
-      .select({
-        total: sqlExpr`COALESCE(SUM(${expenses.amount}), 0)::numeric`,
-      })
-      .from(expenses)
-      .where(eq(expenses.budgetId, budget.id))
-
-    const spentAmount = Number(expensesResult[0]?.total || 0)
+    const spentAmount = budget.expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Calculate additional allocations
-    const allocationsResult = await db
-      .select({
-        total: sqlExpr`COALESCE(SUM(${additionalAllocations.amount}), 0)::numeric`,
-      })
-      .from(additionalAllocations)
-      .where(eq(additionalAllocations.originalBudgetId, budget.id))
-
-    const additionalAmount = Number(allocationsResult[0]?.total || 0)
+    const additionalAmount = budget.additionalAllocations.reduce(
+      (sum, allocation) => sum + Number(allocation.amount),
+      0,
+    )
 
     // Calculate available amount
     const availableAmount = Number(budget.amount) + additionalAmount - spentAmount
@@ -247,10 +184,10 @@ export async function getBudgetById(id: string) {
         id: budget.id,
         name: budget.name,
         amount: Number(budget.amount),
-        startDate: budget.startDate instanceof Date ? budget.startDate.toISOString().split("T")[0] : budget.startDate,
+        startDate: budget.startDate.toLocaleDateString("id-ID"),
         description: budget.description || undefined,
         createdBy: budget.createdBy,
-        createdAt: budget.createdAt instanceof Date ? budget.createdAt.toISOString() : budget.createdAt,
+        createdAt: budget.createdAt.toLocaleDateString("id-ID"),
         spentAmount,
         availableAmount,
         additionalAmount,
@@ -287,16 +224,16 @@ export async function updateBudget(id: string, formData: FormData) {
         description,
       })
 
-    // Update in database using Drizzle ORM
-    await db
-      .update(budgets)
-      .set({
+    // Update budget using Prisma
+    await prisma.budget.update({
+      where: { id },
+      data: {
         name: validatedData.name,
-        amount: validatedData.amount,
+        amount: new Prisma.Decimal(validatedData.amount),
         description: validatedData.description,
         updatedAt: new Date(),
-      })
-      .where(eq(budgets.id, id))
+      },
+    })
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -315,14 +252,11 @@ export async function updateBudget(id: string, formData: FormData) {
 export async function deleteBudget(id: string) {
   try {
     // Check if there are any expenses associated with this budget
-    const expensesCount = await db
-      .select({
-        count: sqlExpr`COUNT(*)`,
-      })
-      .from(expenses)
-      .where(eq(expenses.budgetId, id))
+    const expensesCount = await prisma.expense.count({
+      where: { budgetId: id },
+    })
 
-    if (Number(expensesCount[0]?.count || 0) > 0) {
+    if (expensesCount > 0) {
       return {
         success: false,
         error: "Cannot delete budget with associated expenses. Please delete the expenses first.",
@@ -330,22 +264,21 @@ export async function deleteBudget(id: string) {
     }
 
     // Check if there are any additional allocations associated with this budget
-    const allocationsCount = await db
-      .select({
-        count: sqlExpr`COUNT(*)`,
-      })
-      .from(additionalAllocations)
-      .where(eq(additionalAllocations.originalBudgetId, id))
+    const allocationsCount = await prisma.additionalAllocation.count({
+      where: { originalBudgetId: id },
+    })
 
-    if (Number(allocationsCount[0]?.count || 0) > 0) {
+    if (allocationsCount > 0) {
       return {
         success: false,
         error: "Cannot delete budget with associated additional allocations. Please delete the allocations first.",
       }
     }
 
-    // Delete from database using Drizzle ORM
-    await db.delete(budgets).where(eq(budgets.id, id))
+    // Delete the budget
+    await prisma.budget.delete({
+      where: { id },
+    })
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -363,26 +296,28 @@ export async function deleteBudget(id: string) {
 // Delete a budget along with all associated expenses
 export async function deleteBudgetWithExpenses(id: string) {
   try {
-    // Delete all expenses associated with this budget
-    const deleteExpensesResult = await db.delete(expenses).where(eq(expenses.budgetId, id)).returning()
-    const deletedExpensesCount = deleteExpensesResult.length
+    // Use a transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // First delete all expenses associated with this budget
+      const deletedExpenses = await tx.expense.deleteMany({
+        where: { budgetId: id },
+      })
 
-    // Delete any additional allocations associated with this budget
-    const deleteAllocationsResult = await db
-      .delete(additionalAllocations)
-      .where(eq(additionalAllocations.originalBudgetId, id))
-      .returning()
-    const deletedAllocationsCount = deleteAllocationsResult.length
+      // Then delete any additional allocations associated with this budget
+      const deletedAllocations = await tx.additionalAllocation.deleteMany({
+        where: { originalBudgetId: id },
+      })
 
-    // Delete the budget itself
-    const deleteBudgetResult = await db.delete(budgets).where(eq(budgets.id, id)).returning()
+      // Finally delete the budget itself
+      const deletedBudget = await tx.budget.delete({
+        where: { id },
+      })
 
-    if (deleteBudgetResult.length === 0) {
       return {
-        success: false,
-        error: "Budget not found",
+        deletedExpenses: deletedExpenses.count,
+        deletedAllocations: deletedAllocations.count,
       }
-    }
+    })
 
     // Revalidate the budgets page to reflect the changes
     revalidatePath("/anggaran")
@@ -390,8 +325,8 @@ export async function deleteBudgetWithExpenses(id: string) {
 
     return {
       success: true,
-      deletedExpenses: deletedExpensesCount,
-      deletedAllocations: deletedAllocationsCount,
+      deletedExpenses: result.deletedExpenses,
+      deletedAllocations: result.deletedAllocations,
     }
   } catch (error) {
     console.error("Error deleting budget with expenses:", error)
@@ -405,34 +340,30 @@ export async function deleteBudgetWithExpenses(id: string) {
 // Get budget summary
 export async function getBudgetSummary() {
   try {
-    // Get total budget amount
-    const totalBudgetResult = await db
-      .select({
-        total: sqlExpr`COALESCE(SUM(${budgets.amount}), 0)::numeric`,
+    // Get all budgets with their expenses and additional allocations
+    const budgets = await prisma.budget.findMany({
+      include: {
+        expenses: true,
+        additionalAllocations: true,
+      },
+    })
+
+    // Calculate summary values
+    let totalBudget = 0
+    let totalSpent = 0
+    let totalAdditional = 0
+
+    budgets.forEach((budget) => {
+      totalBudget += Number(budget.amount)
+
+      budget.expenses.forEach((expense) => {
+        totalSpent += Number(expense.amount)
       })
-      .from(budgets)
 
-    const totalBudget = Number(totalBudgetResult[0]?.total || 0)
-
-    // Get total spent amount
-    const totalSpentResult = await db
-      .select({
-        total: sqlExpr`COALESCE(SUM(${expenses.amount}), 0)::numeric`,
+      budget.additionalAllocations.forEach((allocation) => {
+        totalAdditional += Number(allocation.amount)
       })
-      .from(expenses)
-      .innerJoin(budgets, eq(expenses.budgetId, budgets.id))
-
-    const totalSpent = Number(totalSpentResult[0]?.total || 0)
-
-    // Get total additional allocations
-    const totalAdditionalResult = await db
-      .select({
-        total: sqlExpr`COALESCE(SUM(${additionalAllocations.amount}), 0)::numeric`,
-      })
-      .from(additionalAllocations)
-      .innerJoin(budgets, eq(additionalAllocations.originalBudgetId, budgets.id))
-
-    const totalAdditional = Number(totalAdditionalResult[0]?.total || 0)
+    })
 
     // Calculate available amount
     const totalAvailable = totalBudget + totalAdditional - totalSpent

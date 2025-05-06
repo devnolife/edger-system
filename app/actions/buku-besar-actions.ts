@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@/lib/db"
+import { prisma } from "@/lib/prisma"
 
 // Define the expense transaction type with budget information
 export interface ExpenseTransaction {
@@ -27,47 +27,24 @@ export interface ExpenseSummary {
 export async function getExpensesWithBudget() {
   try {
     // Query to get all expenses with their budget information
-    const expenses = await sql<
-      {
-        id: string
-        budget_id: string
-        budget_name: string
-        description: string
-        amount: number
-        date: string
-        submitted_by: string
-        submitted_at: string
-        notes: string | null
-        reference: string | null
-      }[]
-    >`
-  SELECT 
-    e.id,
-    e.budget_id,
-    b.name as budget_name,
-    e.description,
-    e.amount,
-    e.date,
-    e.submitted_by,
-    e.submitted_at,
-    e.notes,
-    e.id as reference
-  FROM expenses e
-  JOIN budgets b ON e.budget_id = b.id
-  ORDER BY e.date DESC, e.submitted_at DESC
-`
+    const expenses = await prisma.expense.findMany({
+      include: {
+        budget: true,
+      },
+      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+    })
 
     // Map the database results to our ExpenseTransaction interface
     const formattedExpenses: ExpenseTransaction[] = expenses.map((expense) => ({
       id: expense.id,
-      date: new Date(expense.date).toLocaleDateString("id-ID"),
-      reference: expense.reference || expense.id,
-      budgetId: expense.budget_id,
-      budgetName: expense.budget_name,
+      date: expense.date.toLocaleDateString("id-ID"),
+      reference: expense.id, // Using ID as reference
+      budgetId: expense.budgetId,
+      budgetName: expense.budget.name,
       amount: Number(expense.amount),
       description: expense.description,
-      submittedBy: expense.submitted_by,
-      submittedAt: new Date(expense.submitted_at).toLocaleString("id-ID"),
+      submittedBy: expense.submittedBy,
+      submittedAt: expense.submittedAt.toLocaleString("id-ID"),
       notes: expense.notes || undefined,
     }))
 
@@ -87,44 +64,32 @@ export async function getExpensesWithBudget() {
 // Get expense summary statistics
 export async function getExpenseSummary() {
   try {
+    // Get all expenses
+    const expenses = await prisma.expense.findMany()
+
+    // Calculate total expenses
+    const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
+
     // Get current date information for filtering
     const now = new Date()
     const currentYear = now.getFullYear()
     const currentMonth = now.getMonth() + 1 // JavaScript months are 0-indexed
 
-    // Query to get summary statistics
-    const summaryResult = await sql<
-      {
-        total_expenses: number
-        current_month_expenses: number
-        transaction_count: number
-      }[]
-    >`
-      SELECT 
-        COALESCE(SUM(amount), 0) as total_expenses,
-        COALESCE(SUM(CASE 
-          WHEN EXTRACT(YEAR FROM date::date) = ${currentYear} 
-          AND EXTRACT(MONTH FROM date::date) = ${currentMonth} 
-          THEN amount ELSE 0 END), 0) as current_month_expenses,
-        COUNT(*) as transaction_count
-      FROM expenses
-    `
+    // Calculate current month expenses
+    const currentMonthExpenses = expenses
+      .filter((expense) => {
+        const expenseDate = expense.date
+        return expenseDate.getMonth() + 1 === currentMonth && expenseDate.getFullYear() === currentYear
+      })
+      .reduce((sum, expense) => sum + Number(expense.amount), 0)
 
-    if (summaryResult.length === 0) {
-      return {
-        success: true,
-        summary: {
-          totalExpenses: 0,
-          currentMonthExpenses: 0,
-          transactionCount: 0,
-        },
-      }
-    }
+    // Count total transactions
+    const transactionCount = expenses.length
 
     const summary: ExpenseSummary = {
-      totalExpenses: Number(summaryResult[0].total_expenses),
-      currentMonthExpenses: Number(summaryResult[0].current_month_expenses),
-      transactionCount: Number(summaryResult[0].transaction_count),
+      totalExpenses,
+      currentMonthExpenses,
+      transactionCount,
     }
 
     return {
@@ -143,47 +108,24 @@ export async function getExpenseSummary() {
 // Get expenses filtered by budget ID
 export async function getExpensesByBudget(budgetId: string) {
   try {
-    const expenses = await sql<
-      {
-        id: string
-        budget_id: string
-        budget_name: string
-        description: string
-        amount: number
-        date: string
-        submitted_by: string
-        submitted_at: string
-        notes: string | null
-        reference: string | null
-      }[]
-    >`
-  SELECT 
-    e.id,
-    e.budget_id,
-    b.name as budget_name,
-    e.description,
-    e.amount,
-    e.date,
-    e.submitted_by,
-    e.submitted_at,
-    e.notes,
-    e.id as reference
-  FROM expenses e
-  JOIN budgets b ON e.budget_id = b.id
-  WHERE e.budget_id = ${budgetId}
-  ORDER BY e.date DESC, e.submitted_at DESC
-`
+    const expenses = await prisma.expense.findMany({
+      where: { budgetId },
+      include: {
+        budget: true,
+      },
+      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+    })
 
     const formattedExpenses: ExpenseTransaction[] = expenses.map((expense) => ({
       id: expense.id,
-      date: new Date(expense.date).toLocaleDateString("id-ID"),
-      reference: expense.reference || expense.id,
-      budgetId: expense.budget_id,
-      budgetName: expense.budget_name,
+      date: expense.date.toLocaleDateString("id-ID"),
+      reference: expense.id, // Using ID as reference
+      budgetId: expense.budgetId,
+      budgetName: expense.budget.name,
       amount: Number(expense.amount),
       description: expense.description,
-      submittedBy: expense.submitted_by,
-      submittedAt: new Date(expense.submitted_at).toLocaleString("id-ID"),
+      submittedBy: expense.submittedBy,
+      submittedAt: expense.submittedAt.toLocaleString("id-ID"),
       notes: expense.notes || undefined,
     }))
 
@@ -203,26 +145,26 @@ export async function getExpensesByBudget(budgetId: string) {
 // Get all unique budgets that have expenses
 export async function getBudgetsWithExpenses() {
   try {
-    const budgets = await sql<
-      {
-        budget_id: string
-        budget_name: string
-      }[]
-    >`
-      SELECT DISTINCT
-        e.budget_id,
-        b.name as budget_name
-      FROM expenses e
-      JOIN budgets b ON e.budget_id = b.id
-      ORDER BY b.name
-    `
+    // Get all expenses with their budgets
+    const expenses = await prisma.expense.findMany({
+      include: {
+        budget: true,
+      },
+      distinct: ["budgetId"],
+    })
+
+    // Extract unique budgets
+    const budgets = expenses.map((expense) => ({
+      id: expense.budgetId,
+      name: expense.budget.name,
+    }))
+
+    // Sort by name
+    budgets.sort((a, b) => a.name.localeCompare(b.name))
 
     return {
       success: true,
-      budgets: budgets.map((budget) => ({
-        id: budget.budget_id,
-        name: budget.budget_name,
-      })),
+      budgets,
     }
   } catch (error) {
     console.error("Error fetching budgets with expenses:", error)

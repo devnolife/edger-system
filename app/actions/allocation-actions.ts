@@ -1,10 +1,11 @@
 "use server"
 
-import { sql, generateId, formatDateForSQL, executeQueryWithRetry } from "@/lib/db"
+import { prisma, generateId, formatDateForDB } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { Prisma } from "@prisma/client"
 
-// Define types - removed AllocationStatus type since it's no longer needed
+// Define types
 export interface AdditionalAllocation {
   id: string
   originalBudgetId: string
@@ -44,7 +45,7 @@ const updateAllocationSchema = z.object({
   requestDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
 })
 
-// Create a new additional allocation - removed status field
+// Create a new additional allocation
 export async function createAdditionalAllocation(formData: FormData) {
   try {
     // Extract and validate data
@@ -70,38 +71,28 @@ export async function createAdditionalAllocation(formData: FormData) {
     // Generate a unique ID
     const id = generateId("ADD")
 
-    // Insert into database - without status field
-    // All allocations are automatically approved
-    await executeQueryWithRetry(
-      () => sql`
-      INSERT INTO additional_allocations (
-        id, original_budget_id, description, reason, amount, 
-        request_date, requested_by, related_expense_id,
-        approved_by, approved_at
-      ) VALUES (
-        ${id}, 
-        ${validatedData.originalBudgetId}, 
-        ${validatedData.description}, 
-        ${validatedData.reason}, 
-        ${validatedData.amount}, 
-        ${formatDateForSQL(validatedData.requestDate)}, 
-        ${validatedData.requestedBy},
-        ${validatedData.relatedExpenseId},
-        ${validatedData.requestedBy},
-        CURRENT_TIMESTAMP
-      )
-    `,
-    )
+    // Create the allocation using Prisma
+    await prisma.additionalAllocation.create({
+      data: {
+        id,
+        originalBudgetId: validatedData.originalBudgetId,
+        description: validatedData.description,
+        reason: validatedData.reason,
+        amount: new Prisma.Decimal(validatedData.amount),
+        requestDate: formatDateForDB(validatedData.requestDate),
+        requestedBy: validatedData.requestedBy,
+        relatedExpenseId: validatedData.relatedExpenseId,
+        approvedBy: validatedData.requestedBy,
+        approvedAt: new Date(),
+      },
+    })
 
     // If this allocation is related to an expense, update the expense
     if (validatedData.relatedExpenseId) {
-      await executeQueryWithRetry(
-        () => sql`
-        UPDATE expenses 
-        SET additional_allocation_id = ${id}
-        WHERE id = ${validatedData.relatedExpenseId}
-      `,
-      )
+      await prisma.expense.update({
+        where: { id: validatedData.relatedExpenseId },
+        data: { additionalAllocationId: id },
+      })
     }
 
     // Revalidate the allocations page to reflect the changes
@@ -141,11 +132,11 @@ export async function updateAdditionalAllocation(formData: FormData) {
     })
 
     // Check if the allocation exists
-    const existingAllocation = await executeQueryWithRetry(
-      () => sql`SELECT id, amount FROM additional_allocations WHERE id = ${validatedData.id}`,
-    )
+    const existingAllocation = await prisma.additionalAllocation.findUnique({
+      where: { id: validatedData.id },
+    })
 
-    if (existingAllocation.length === 0) {
+    if (!existingAllocation) {
       return {
         success: false,
         error: "Additional allocation not found",
@@ -153,15 +144,11 @@ export async function updateAdditionalAllocation(formData: FormData) {
     }
 
     // Check if there are any expenses using this allocation
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE additional_allocation_id = ${validatedData.id}
-    `,
-    )
+    const expenses = await prisma.expense.findMany({
+      where: { additionalAllocationId: validatedData.id },
+    })
 
-    const spentAmount = Number(expensesResult[0]?.total || 0)
+    const spentAmount = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // If the new amount is less than the spent amount, return an error
     if (validatedData.amount < spentAmount) {
@@ -172,18 +159,16 @@ export async function updateAdditionalAllocation(formData: FormData) {
     }
 
     // Update the allocation
-    await executeQueryWithRetry(
-      () => sql`
-      UPDATE additional_allocations 
-      SET 
-        original_budget_id = ${validatedData.originalBudgetId},
-        description = ${validatedData.description},
-        reason = ${validatedData.reason},
-        amount = ${validatedData.amount},
-        request_date = ${formatDateForSQL(validatedData.requestDate)}
-      WHERE id = ${validatedData.id}
-    `,
-    )
+    await prisma.additionalAllocation.update({
+      where: { id: validatedData.id },
+      data: {
+        originalBudgetId: validatedData.originalBudgetId,
+        description: validatedData.description,
+        reason: validatedData.reason,
+        amount: new Prisma.Decimal(validatedData.amount),
+        requestDate: formatDateForDB(validatedData.requestDate),
+      },
+    })
 
     // Revalidate the allocations page to reflect the changes
     revalidatePath("/anggaran-tambahan")
@@ -204,11 +189,11 @@ export async function updateAdditionalAllocation(formData: FormData) {
 export async function deleteAdditionalAllocation(id: string) {
   try {
     // Check if the allocation exists
-    const existingAllocation = await executeQueryWithRetry(
-      () => sql`SELECT id FROM additional_allocations WHERE id = ${id}`,
-    )
+    const existingAllocation = await prisma.additionalAllocation.findUnique({
+      where: { id },
+    })
 
-    if (existingAllocation.length === 0) {
+    if (!existingAllocation) {
       return {
         success: false,
         error: "Additional allocation not found",
@@ -216,34 +201,22 @@ export async function deleteAdditionalAllocation(id: string) {
     }
 
     // Check if there are any expenses using this allocation
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ count: number }[]>`
-      SELECT COUNT(*) as count 
-      FROM expenses 
-      WHERE additional_allocation_id = ${id}
-    `,
-    )
+    const expensesCount = await prisma.expense.count({
+      where: { additionalAllocationId: id },
+    })
 
-    const expenseCount = Number(expensesResult[0]?.count || 0)
-
-    if (expenseCount > 0) {
+    if (expensesCount > 0) {
       // Update expenses to remove the allocation reference
-      await executeQueryWithRetry(
-        () => sql`
-        UPDATE expenses 
-        SET additional_allocation_id = NULL
-        WHERE additional_allocation_id = ${id}
-      `,
-      )
+      await prisma.expense.updateMany({
+        where: { additionalAllocationId: id },
+        data: { additionalAllocationId: null },
+      })
     }
 
     // Delete the allocation
-    await executeQueryWithRetry(
-      () => sql`
-      DELETE FROM additional_allocations 
-      WHERE id = ${id}
-    `,
-    )
+    await prisma.additionalAllocation.delete({
+      where: { id },
+    })
 
     // Revalidate the allocations page to reflect the changes
     revalidatePath("/anggaran-tambahan")
@@ -260,45 +233,18 @@ export async function deleteAdditionalAllocation(id: string) {
   }
 }
 
-// Get all additional allocations - removed status filtering
+// Get all additional allocations
 export async function getAdditionalAllocations() {
   try {
-    // Use executeQueryWithRetry to handle rate limiting
-    const allocations = await executeQueryWithRetry(
-      () => sql<
-        {
-          id: string
-          original_budget_id: string
-          budget_name: string | null
-          description: string
-          reason: string
-          amount: number
-          request_date: string
-          requested_by: string
-          requested_at: string
-          approved_by: string | null
-          approved_at: string | null
-          related_expense_id: string | null
-        }[]
-      >`
-      SELECT 
-        a.id, 
-        a.original_budget_id, 
-        a.description, 
-        a.reason, 
-        a.amount, 
-        a.request_date, 
-        a.requested_by, 
-        a.requested_at, 
-        a.approved_by, 
-        a.approved_at, 
-        a.related_expense_id,
-        b.name as budget_name
-      FROM additional_allocations a
-      LEFT JOIN budgets b ON a.original_budget_id = b.id
-      ORDER BY a.requested_at DESC
-    `,
-    )
+    // Get all allocations with their related budget
+    const allocations = await prisma.additionalAllocation.findMany({
+      include: {
+        originalBudget: true,
+      },
+      orderBy: {
+        requestedAt: "desc",
+      },
+    })
 
     // If no allocations, return empty array
     if (allocations.length === 0) {
@@ -308,43 +254,43 @@ export async function getAdditionalAllocations() {
     // Get all allocation IDs
     const allocationIds = allocations.map((allocation) => allocation.id)
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
-    // Get all expenses related to these allocations in a single query
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ additional_allocation_id: string; total: number }[]>`
-      SELECT additional_allocation_id, COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE additional_allocation_id = ANY(${allocationIds})
-      GROUP BY additional_allocation_id
-    `,
-    )
+    // Get all expenses related to these allocations
+    const expenses = await prisma.expense.findMany({
+      where: {
+        additionalAllocationId: {
+          in: allocationIds,
+        },
+      },
+    })
 
     // Create a map of allocation_id to spent amount
     const spentAmountMap = new Map<string, number>()
-    expensesResult.forEach((row) => {
-      spentAmountMap.set(row.additional_allocation_id, Number(row.total))
+    expenses.forEach((expense) => {
+      const allocationId = expense.additionalAllocationId
+      if (allocationId) {
+        const currentAmount = spentAmountMap.get(allocationId) || 0
+        spentAmountMap.set(allocationId, currentAmount + Number(expense.amount))
+      }
     })
 
     // Map the allocations with calculated fields
     const allocationsWithCalculatedFields = allocations.map((allocation) => {
       const spentAmount = spentAmountMap.get(allocation.id) || 0
-      const availableAmount = allocation.amount - spentAmount
+      const availableAmount = Number(allocation.amount) - spentAmount
 
       return {
         id: allocation.id,
-        originalBudgetId: allocation.original_budget_id,
-        originalBudgetName: allocation.budget_name || undefined,
+        originalBudgetId: allocation.originalBudgetId,
+        originalBudgetName: allocation.originalBudget.name,
         description: allocation.description,
         reason: allocation.reason,
-        amount: allocation.amount,
-        requestDate: allocation.request_date,
-        requestedBy: allocation.requested_by,
-        requestedAt: allocation.requested_at,
-        approvedBy: allocation.approved_by || undefined,
-        approvedAt: allocation.approved_at || undefined,
-        relatedExpenseId: allocation.related_expense_id || undefined,
+        amount: Number(allocation.amount),
+        requestDate: allocation.requestDate.toISOString().split("T")[0],
+        requestedBy: allocation.requestedBy,
+        requestedAt: allocation.requestedAt.toISOString(),
+        approvedBy: allocation.approvedBy || undefined,
+        approvedAt: allocation.approvedAt?.toISOString() || undefined,
+        relatedExpenseId: allocation.relatedExpenseId || undefined,
         spentAmount,
         availableAmount,
       }
@@ -360,84 +306,43 @@ export async function getAdditionalAllocations() {
   }
 }
 
-// Get a single additional allocation by ID - removed status references
+// Get a single additional allocation by ID
 export async function getAdditionalAllocationById(id: string) {
   try {
-    // Use executeQueryWithRetry to handle rate limiting
-    const allocations = await executeQueryWithRetry(
-      () => sql<
-        {
-          id: string
-          original_budget_id: string
-          budget_name: string | null
-          description: string
-          reason: string
-          amount: number
-          request_date: string
-          requested_by: string
-          requested_at: string
-          approved_by: string | null
-          approved_at: string | null
-          related_expense_id: string | null
-        }[]
-      >`
-      SELECT 
-        a.*, 
-        b.name as budget_name
-      FROM additional_allocations a
-      LEFT JOIN budgets b ON a.original_budget_id = b.id
-      WHERE a.id = ${id}
-    `,
-    )
+    // Get the allocation with its related budget
+    const allocation = await prisma.additionalAllocation.findUnique({
+      where: { id },
+      include: {
+        originalBudget: true,
+      },
+    })
 
-    if (allocations.length === 0) {
+    if (!allocation) {
       return { success: false, error: "Additional allocation not found" }
     }
 
-    const allocation = allocations[0]
-
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
     // Calculate spent amount from expenses that use this allocation
-    const expensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total 
-      FROM expenses 
-      WHERE additional_allocation_id = ${allocation.id}
-    `,
-    )
+    const expenses = await prisma.expense.findMany({
+      where: { additionalAllocationId: id },
+    })
 
-    const spentAmount = Number(expensesResult[0]?.total || 0)
+    const spentAmount = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Calculate available amount
-    const availableAmount = allocation.amount - spentAmount
+    const availableAmount = Number(allocation.amount) - spentAmount
 
     // If there's a related expense, get its details
     let relatedExpense = null
-    if (allocation.related_expense_id) {
-      // Add a small delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 100))
+    if (allocation.relatedExpenseId) {
+      const expense = await prisma.expense.findUnique({
+        where: { id: allocation.relatedExpenseId },
+      })
 
-      const expenses = await executeQueryWithRetry(
-        () => sql<
-          {
-            id: string
-            description: string
-            amount: number
-          }[]
-        >`
-        SELECT id, description, amount
-        FROM expenses
-        WHERE id = ${allocation.related_expense_id}
-      `,
-      )
-
-      if (expenses.length > 0) {
+      if (expense) {
         relatedExpense = {
-          id: expenses[0].id,
-          description: expenses[0].description,
-          amount: expenses[0].amount,
+          id: expense.id,
+          description: expense.description,
+          amount: Number(expense.amount),
         }
       }
     }
@@ -446,17 +351,17 @@ export async function getAdditionalAllocationById(id: string) {
       success: true,
       allocation: {
         id: allocation.id,
-        originalBudgetId: allocation.original_budget_id,
-        originalBudgetName: allocation.budget_name || undefined,
+        originalBudgetId: allocation.originalBudgetId,
+        originalBudgetName: allocation.originalBudget.name,
         description: allocation.description,
         reason: allocation.reason,
-        amount: allocation.amount,
-        requestDate: allocation.request_date,
-        requestedBy: allocation.requested_by,
-        requestedAt: allocation.requested_at,
-        approvedBy: allocation.approved_by || undefined,
-        approvedAt: allocation.approved_at || undefined,
-        relatedExpenseId: allocation.related_expense_id || undefined,
+        amount: Number(allocation.amount),
+        requestDate: allocation.requestDate.toISOString().split("T")[0],
+        requestedBy: allocation.requestedBy,
+        requestedAt: allocation.requestedAt.toISOString(),
+        approvedBy: allocation.approvedBy || undefined,
+        approvedAt: allocation.approvedAt?.toISOString() || undefined,
+        relatedExpenseId: allocation.relatedExpenseId || undefined,
         spentAmount,
         availableAmount,
         relatedExpense,
@@ -471,26 +376,17 @@ export async function getAdditionalAllocationById(id: string) {
   }
 }
 
-// Get allocation summary - removed status filtering
+// Get allocation summary
 export async function getAllocationSummary() {
   try {
-    // Use executeQueryWithRetry to handle rate limiting
-    const totalResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-      SELECT COALESCE(SUM(amount), 0) as total FROM additional_allocations
-    `,
-    )
+    // Get all allocations
+    const allocations = await prisma.additionalAllocation.findMany()
 
-    const total = Number(totalResult[0]?.total || 0)
+    // Calculate total amount
+    const total = allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0)
 
     // Get count of allocations
-    const countResult = await executeQueryWithRetry(
-      () => sql<{ count: number }[]>`
-      SELECT COUNT(*) as count FROM additional_allocations
-    `,
-    )
-
-    const count = Number(countResult[0]?.count || 0)
+    const count = allocations.length
 
     return {
       success: true,

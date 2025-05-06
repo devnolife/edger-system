@@ -86,11 +86,10 @@
     "@neondatabase/serverless": "latest",
     "@cloudflare/workers-types": "latest",
     "@op-engineering/op-sqlite": "latest",
+    "prisma": "latest",
     "framer-motion": "latest",
     "@vercel/blob": "latest",
-    "drizzle-orm": "latest",
-    "drizzle-kit": "latest",
-    "dotenv": "latest"
+    "drizzle-orm": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

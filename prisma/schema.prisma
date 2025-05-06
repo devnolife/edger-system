@@ -1,0 +1,86 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Budget model
+model Budget {
+  id          String   @id
+  name        String
+  amount      Decimal  @db.Decimal(15, 2)
+  startDate   DateTime @map("start_date") @db.Date
+  description String?
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime? @map("updated_at")
+
+  // Relations
+  expenses              Expense[]
+  additionalAllocations AdditionalAllocation[]
+
+  @@map("budgets")
+}
+
+// Expense model
+model Expense {
+  id                    String   @id
+  budgetId              String   @map("budget_id")
+  description           String
+  amount                Decimal  @db.Decimal(15, 2)
+  date                  DateTime @db.Date
+  submittedBy           String   @map("submitted_by")
+  submittedAt           DateTime @default(now()) @map("submitted_at")
+  notes                 String?
+  additionalAllocationId String? @map("additional_allocation_id")
+  imageUrl              String?  @map("image_url")
+
+  // Relations
+  budget               Budget                @relation(fields: [budgetId], references: [id])
+  additionalAllocation AdditionalAllocation? @relation(fields: [additionalAllocationId], references: [id])
+  budgetUsageHistory   BudgetUsageHistory[]
+
+  @@map("expenses")
+}
+
+// Additional Allocation model
+model AdditionalAllocation {
+  id               String   @id
+  originalBudgetId String   @map("original_budget_id")
+  description      String
+  reason           String
+  amount           Decimal  @db.Decimal(15, 2)
+  requestDate      DateTime @map("request_date") @db.Date
+  requestedBy      String   @map("requested_by")
+  requestedAt      DateTime @default(now()) @map("requested_at")
+  approvedBy       String?  @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  relatedExpenseId String?  @map("related_expense_id")
+
+  // Relations
+  originalBudget Budget    @relation(fields: [originalBudgetId], references: [id])
+  expenses       Expense[]
+
+  @@map("additional_allocations")
+}
+
+// Budget Usage History model
+model BudgetUsageHistory {
+  id         Int      @id @default(autoincrement())
+  budgetId   String   @map("budget_id")
+  expenseId  String   @map("expense_id")
+  amount     Decimal  @db.Decimal(15, 2)
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  // Relations
+  budget  Budget  @relation(fields: [budgetId], references: [id])
+  expense Expense @relation(fields: [expenseId], references: [id])
+
+  @@map("budget_usage_history")
+}

@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@/lib/db"
+import { prisma } from "@/lib/prisma"
 
 // Define types for budget history data
 export interface BudgetUsageRecord {
@@ -38,7 +38,7 @@ export type TimeFrame = "daily" | "weekly" | "monthly"
 export async function getBudgetUsageHistory(budgetId: string, timeFrame: TimeFrame = "daily", limit = 100) {
   try {
     // Check if the table exists
-    const tableExists = await sql`
+    const tableExists = await prisma.$queryRaw`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'budget_usage_history'
@@ -53,125 +53,98 @@ export async function getBudgetUsageHistory(budgetId: string, timeFrame: TimeFra
     }
 
     // Get the raw history records with expense descriptions
-    const records = await sql<
-      {
-        id: number
-        budget_id: string
-        expense_id: string
-        amount: number
-        recorded_at: string
-        description: string | null
-      }[]
-    >`
-      SELECT h.id, h.budget_id, h.expense_id, h.amount, h.recorded_at, e.description
-      FROM budget_usage_history h
-      LEFT JOIN expenses e ON h.expense_id = e.id
-      WHERE h.budget_id = ${budgetId}
-      ORDER BY h.recorded_at DESC
-      LIMIT ${limit}
-    `
+    const records = await prisma.budgetUsageHistory.findMany({
+      where: { budgetId },
+      include: {
+        expense: true,
+      },
+      orderBy: {
+        recordedAt: "desc",
+      },
+      take: limit,
+    })
 
     // Get the budget name
-    const budgetResult = await sql<{ name: string }[]>`
-      SELECT name FROM budgets WHERE id = ${budgetId}
-    `
-    const budgetName = budgetResult.length > 0 ? budgetResult[0].name : "Unknown Budget"
+    const budget = await prisma.budget.findUnique({
+      where: { id: budgetId },
+    })
+
+    const budgetName = budget?.name || "Unknown Budget"
 
     // Format the records
     const formattedRecords: BudgetUsageRecord[] = records.map((record) => ({
       id: record.id,
-      budgetId: record.budget_id,
-      expenseId: record.expense_id,
+      budgetId: record.budgetId,
+      expenseId: record.expenseId,
       amount: Number(record.amount),
-      recordedAt: new Date(record.recorded_at).toISOString(),
-      expenseDescription: record.description || undefined,
+      recordedAt: record.recordedAt.toISOString(),
+      expenseDescription: record.expense.description || undefined,
       budgetName,
     }))
 
     // Group the data by time frame for chart visualization
     let groupedData: BudgetUsageChartData[] = []
-    let dateFormat: string
-    let groupByClause: string
 
-    switch (timeFrame) {
-      case "weekly":
-        dateFormat = "YYYY-WW" // ISO week format
-        groupByClause = "TO_CHAR(recorded_at, 'YYYY-IW')"
-        break
-      case "monthly":
-        dateFormat = "YYYY-MM"
-        groupByClause = "TO_CHAR(recorded_at, 'YYYY-MM')"
-        break
-      case "daily":
-      default:
-        dateFormat = "YYYY-MM-DD"
-        groupByClause = "TO_CHAR(recorded_at, 'YYYY-MM-DD')"
-        break
-    }
+    // For simplicity, we'll implement a basic grouping here
+    // In a real implementation, you might want to use more sophisticated date grouping
+    const groupedMap = new Map<string, number>()
 
-    const groupedResult = await sql<
-      {
-        date_group: string
-        total_amount: number
-      }[]
-    >`
-      SELECT 
-        ${groupByClause} as date_group,
-        SUM(amount) as total_amount
-      FROM budget_usage_history
-      WHERE budget_id = ${budgetId}
-      GROUP BY date_group
-      ORDER BY date_group
-    `
+    records.forEach((record) => {
+      let dateKey: string
+      const date = record.recordedAt
+
+      switch (timeFrame) {
+        case "weekly":
+          // Get ISO week (simplified)
+          const weekNumber = Math.ceil((date.getDate() + (date.getDay() === 0 ? 6 : date.getDay() - 1)) / 7)
+          dateKey = `${date.getFullYear()}-${weekNumber.toString().padStart(2, "0")}`
+          break
+        case "monthly":
+          dateKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`
+          break
+        case "daily":
+        default:
+          dateKey = date.toISOString().split("T")[0]
+          break
+      }
+
+      const currentAmount = groupedMap.get(dateKey) || 0
+      groupedMap.set(dateKey, currentAmount + Number(record.amount))
+    })
+
+    // Convert the map to an array and sort by date
+    const sortedDates = Array.from(groupedMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
 
     // Calculate cumulative amounts
     let cumulativeAmount = 0
-    groupedData = groupedResult.map((item) => {
-      const amount = Number(item.total_amount)
+    groupedData = sortedDates.map(([date, amount]) => {
       cumulativeAmount += amount
       return {
-        date: item.date_group,
+        date,
         amount,
         cumulativeAmount,
       }
     })
 
     // Get summary statistics
-    const summaryResult = await sql<
-      {
-        total_records: number
-        total_amount: number
-        avg_amount: number
-        max_amount: number
-        min_amount: number
-        first_date: string
-        last_date: string
-      }[]
-    >`
-      SELECT 
-        COUNT(*) as total_records,
-        COALESCE(SUM(amount), 0) as total_amount,
-        COALESCE(AVG(amount), 0) as avg_amount,
-        COALESCE(MAX(amount), 0) as max_amount,
-        COALESCE(MIN(amount), 0) as min_amount,
-        MIN(recorded_at) as first_date,
-        MAX(recorded_at) as last_date
-      FROM budget_usage_history
-      WHERE budget_id = ${budgetId}
-    `
+    const amounts = records.map((record) => Number(record.amount))
+    const totalRecords = records.length
+    const totalAmount = amounts.reduce((sum, amount) => sum + amount, 0)
+    const averageAmount = totalRecords > 0 ? totalAmount / totalRecords : 0
+    const maxAmount = amounts.length > 0 ? Math.max(...amounts) : 0
+    const minAmount = amounts.length > 0 ? Math.min(...amounts) : 0
+    const firstDate =
+      records.length > 0 ? records[records.length - 1].recordedAt.toISOString() : new Date().toISOString()
+    const lastDate = records.length > 0 ? records[0].recordedAt.toISOString() : new Date().toISOString()
 
     const summary: BudgetUsageSummary = {
-      totalRecords: Number(summaryResult[0]?.total_records || 0),
-      totalAmount: Number(summaryResult[0]?.total_amount || 0),
-      averageAmount: Number(summaryResult[0]?.avg_amount || 0),
-      maxAmount: Number(summaryResult[0]?.max_amount || 0),
-      minAmount: Number(summaryResult[0]?.min_amount || 0),
-      firstRecordDate: summaryResult[0]?.first_date
-        ? new Date(summaryResult[0].first_date).toISOString()
-        : new Date().toISOString(),
-      lastRecordDate: summaryResult[0]?.last_date
-        ? new Date(summaryResult[0].last_date).toISOString()
-        : new Date().toISOString(),
+      totalRecords,
+      totalAmount,
+      averageAmount,
+      maxAmount,
+      minAmount,
+      firstRecordDate: firstDate,
+      lastRecordDate: lastDate,
     }
 
     return {
@@ -196,7 +169,7 @@ export async function getBudgetUsageHistory(budgetId: string, timeFrame: TimeFra
 export async function getRecentBudgetUsage(limit = 10) {
   try {
     // Check if the table exists
-    const tableExists = await sql`
+    const tableExists = await prisma.$queryRaw`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'budget_usage_history'
@@ -211,41 +184,26 @@ export async function getRecentBudgetUsage(limit = 10) {
     }
 
     // Get the recent usage records with budget and expense details
-    const records = await sql<
-      {
-        id: number
-        budget_id: string
-        budget_name: string
-        expense_id: string
-        expense_description: string | null
-        amount: number
-        recorded_at: string
-      }[]
-    >`
-      SELECT 
-        h.id, 
-        h.budget_id, 
-        b.name as budget_name,
-        h.expense_id, 
-        e.description as expense_description,
-        h.amount, 
-        h.recorded_at
-      FROM budget_usage_history h
-      JOIN budgets b ON h.budget_id = b.id
-      LEFT JOIN expenses e ON h.expense_id = e.id
-      ORDER BY h.recorded_at DESC
-      LIMIT ${limit}
-    `
+    const records = await prisma.budgetUsageHistory.findMany({
+      include: {
+        budget: true,
+        expense: true,
+      },
+      orderBy: {
+        recordedAt: "desc",
+      },
+      take: limit,
+    })
 
     // Format the records
     const formattedRecords: BudgetUsageRecord[] = records.map((record) => ({
       id: record.id,
-      budgetId: record.budget_id,
-      budgetName: record.budget_name,
-      expenseId: record.expense_id,
-      expenseDescription: record.expense_description || undefined,
+      budgetId: record.budgetId,
+      budgetName: record.budget.name,
+      expenseId: record.expenseId,
+      expenseDescription: record.expense.description || undefined,
       amount: Number(record.amount),
-      recordedAt: new Date(record.recorded_at).toISOString(),
+      recordedAt: record.recordedAt.toISOString(),
     }))
 
     return {

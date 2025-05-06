@@ -1,6 +1,6 @@
 "use server"
 
-import { sql, executeQueryWithRetry } from "@/lib/db"
+import { prisma } from "@/lib/prisma"
 
 // Dashboard summary data type
 export interface DashboardSummary {
@@ -24,64 +24,44 @@ export interface RecentTransaction {
 export async function getDashboardSummary(): Promise<{ success: boolean; data?: DashboardSummary; error?: string }> {
   try {
     // Get total expenses
-    const totalExpensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total FROM expenses
-      `,
-    )
-    const totalExpenses = Number(totalExpensesResult[0]?.total || 0)
+    const expenses = await prisma.expense.findMany()
+    const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
-    // Get expenses from current month
+    // Get current date information
     const currentDate = new Date()
     const currentMonth = currentDate.getMonth() + 1 // JavaScript months are 0-indexed
     const currentYear = currentDate.getFullYear()
 
-    const currentMonthExpensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE EXTRACT(MONTH FROM date::date) = ${currentMonth}
-        AND EXTRACT(YEAR FROM date::date) = ${currentYear}
-      `,
-    )
-    const currentMonthExpenses = Number(currentMonthExpensesResult[0]?.total || 0)
+    // Get expenses from current month
+    const currentMonthExpenses = expenses.filter((expense) => {
+      const expenseDate = expense.date
+      return expenseDate.getMonth() + 1 === currentMonth && expenseDate.getFullYear() === currentYear
+    })
 
-    // Add a small delay to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    const currentMonthTotal = currentMonthExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Get expenses from previous month
     const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1
     const previousYear = currentMonth === 1 ? currentYear - 1 : currentYear
 
-    const previousMonthExpensesResult = await executeQueryWithRetry(
-      () => sql<{ total: number }[]>`
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE EXTRACT(MONTH FROM date::date) = ${previousMonth}
-        AND EXTRACT(YEAR FROM date::date) = ${previousYear}
-      `,
-    )
-    const previousMonthExpenses = Number(previousMonthExpensesResult[0]?.total || 0)
+    const previousMonthExpenses = expenses.filter((expense) => {
+      const expenseDate = expense.date
+      return expenseDate.getMonth() + 1 === previousMonth && expenseDate.getFullYear() === previousYear
+    })
+
+    const previousMonthTotal = previousMonthExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     // Calculate expense growth percentage
     let expenseGrowth = 0
-    if (previousMonthExpenses > 0) {
-      expenseGrowth = ((currentMonthExpenses - previousMonthExpenses) / previousMonthExpenses) * 100
+    if (previousMonthTotal > 0) {
+      expenseGrowth = ((currentMonthTotal - previousMonthTotal) / previousMonthTotal) * 100
     }
 
     // Get total number of budget items
-    const totalBudgetItemsResult = await executeQueryWithRetry(
-      () => sql<{ count: number }[]>`
-        SELECT COUNT(*) as count FROM budgets
-      `,
-    )
-    const totalBudgetItems = Number(totalBudgetItemsResult[0]?.count || 0)
+    const totalBudgetItems = await prisma.budget.count()
 
     // Set default value for additional budget items since the table doesn't exist
-    const totalAdditionalBudgetItems = 0
+    const totalAdditionalBudgetItems = await prisma.additionalAllocation.count()
 
     return {
       success: true,
@@ -111,27 +91,16 @@ export async function getRecentTransactions(limit = 5): Promise<{
 }> {
   try {
     // Get recent expenses
-    const recentTransactionsResult = await executeQueryWithRetry(
-      () => sql<
-        {
-          id: string
-          description: string
-          date: string
-          amount: number
-        }[]
-      >`
-        SELECT id, description, date, amount
-        FROM expenses
-        ORDER BY date DESC, submitted_at DESC
-        LIMIT ${limit}
-      `,
-    )
+    const expenses = await prisma.expense.findMany({
+      orderBy: [{ date: "desc" }, { submittedAt: "desc" }],
+      take: limit,
+    })
 
-    const transactions = recentTransactionsResult.map((tx) => ({
-      id: tx.id,
-      description: tx.description,
-      date: tx.date,
-      amount: Number(tx.amount),
+    const transactions = expenses.map((expense) => ({
+      id: expense.id,
+      description: expense.description,
+      date: expense.date.toISOString().split("T")[0],
+      amount: Number(expense.amount),
     }))
 
     return {
@@ -156,27 +125,46 @@ export async function getMonthlyExpenseData(): Promise<{
   error?: string
 }> {
   try {
-    // Get the last 6 months of expense data
-    const monthlyDataResult = await executeQueryWithRetry(
-      () => sql<{ month: string; year: number; total: number }[]>`
-        SELECT 
-          EXTRACT(MONTH FROM date::date) as month,
-          EXTRACT(YEAR FROM date::date) as year,
-          COALESCE(SUM(amount), 0) as total
-        FROM expenses
-        WHERE date::date >= CURRENT_DATE - INTERVAL '6 months'
-        GROUP BY EXTRACT(MONTH FROM date::date), EXTRACT(YEAR FROM date::date)
-        ORDER BY year, month
-        LIMIT 6
-      `,
-    )
+    // Get all expenses
+    const expenses = await prisma.expense.findMany()
+
+    // Get the last 6 months
+    const today = new Date()
+    const monthsData: { [key: string]: number } = {}
+
+    for (let i = 0; i < 6; i++) {
+      const date = new Date(today)
+      date.setMonth(today.getMonth() - i)
+      const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`
+      monthsData[monthKey] = 0
+    }
+
+    // Group expenses by month
+    expenses.forEach((expense) => {
+      const date = expense.date
+      const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`
+
+      if (monthsData[monthKey] !== undefined) {
+        monthsData[monthKey] += Number(expense.amount)
+      }
+    })
 
     // Format the data for the chart
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-    const data = monthlyDataResult.map((item) => ({
-      name: monthNames[Number(item.month) - 1],
-      pengeluaran: Number(item.total),
-    }))
+    const data = Object.entries(monthsData).map(([key, value]) => {
+      const [year, month] = key.split("-").map(Number)
+      return {
+        name: monthNames[month - 1],
+        pengeluaran: value,
+      }
+    })
+
+    // Sort by month (assuming the keys are in format YYYY-MM)
+    data.sort((a, b) => {
+      const monthA = monthNames.indexOf(a.name)
+      const monthB = monthNames.indexOf(b.name)
+      return monthA - monthB
+    })
 
     return {
       success: true,

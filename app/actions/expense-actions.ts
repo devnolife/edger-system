@@ -1,14 +1,10 @@
 "use server"
 
-import { sql, generateId, formatDateForSQL } from "@/lib/db"
+import { prisma, generateId, formatDateForDB } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { getBudgetById } from "./budget-actions"
-// Add this import at the top of the file
+import { Prisma } from "@prisma/client"
 import { updateBudgetCalculations, trackBudgetUsage } from "@/lib/budget-update-service"
-
-// Remove this line:
-// export type ExpenseStatus = "pending" | "approved" | "rejected"
 
 // Update the Expense interface to include imageUrl
 export interface Expense {
@@ -24,7 +20,7 @@ export interface Expense {
   approvedAt?: string
   notes?: string
   additionalAllocationId?: string
-  imageUrl?: string // Add this field
+  imageUrl?: string
 }
 
 // Update the validation schema to require imageUrl
@@ -35,7 +31,7 @@ const expenseSchema = z.object({
   date: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
   submittedBy: z.string().min(1, "Submitter is required"),
   notes: z.string().optional(),
-  imageUrl: z.string().min(1, "Receipt image is required"), // Add this field
+  imageUrl: z.string().min(1, "Receipt image is required"),
 })
 
 // Update the createExpense function to handle image uploads
@@ -63,20 +59,27 @@ export async function createExpense(formData: FormData) {
       date,
       submittedBy,
       notes,
-      imageUrl, // Include imageUrl in validation
+      imageUrl,
     })
 
     // Generate a unique ID
     const id = generateId("EXP")
 
     // Get the current budget details to check available amount
-    const budgetResult = await getBudgetById(validatedData.budgetId)
-    if (!budgetResult.success) {
-      return { success: false, error: budgetResult.error || "Failed to fetch budget details" }
+    const budget = await prisma.budget.findUnique({
+      where: { id: validatedData.budgetId },
+      include: {
+        expenses: true,
+      },
+    })
+
+    if (!budget) {
+      return { success: false, error: "Budget not found" }
     }
 
-    const budget = budgetResult.budget
-    const availableAmount = Number(budget.availableAmount)
+    // Calculate available amount
+    const spentAmount = budget.expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
+    const availableAmount = Number(budget.amount) - spentAmount
 
     let additionalAllocationId: string | null = null
     let needsAllocation = false
@@ -89,44 +92,36 @@ export async function createExpense(formData: FormData) {
       // Create an additional allocation that is automatically approved
       additionalAllocationId = generateId("ADD")
 
-      await sql`
-        INSERT INTO additional_allocations (
-          id, original_budget_id, description, reason, amount, 
-          request_date, status, requested_by, related_expense_id,
-          approved_by, approved_at
-        ) VALUES (
-          ${additionalAllocationId}, 
-          ${validatedData.budgetId}, 
-          ${"Alokasi tambahan untuk: " + validatedData.description}, 
-          ${"Pengeluaran melebihi anggaran yang tersedia"}, 
-          ${shortageAmount}, 
-          ${formatDateForSQL(validatedData.date)}, 
-          'approved', 
-          ${validatedData.submittedBy},
-          ${id},
-          ${validatedData.submittedBy},
-          CURRENT_TIMESTAMP
-        )
-      `
+      await prisma.additionalAllocation.create({
+        data: {
+          id: additionalAllocationId,
+          originalBudgetId: validatedData.budgetId,
+          description: `Alokasi tambahan untuk: ${validatedData.description}`,
+          reason: "Pengeluaran melebihi anggaran yang tersedia",
+          amount: new Prisma.Decimal(shortageAmount),
+          requestDate: formatDateForDB(validatedData.date),
+          requestedBy: validatedData.submittedBy,
+          approvedBy: validatedData.submittedBy,
+          approvedAt: new Date(),
+          relatedExpenseId: id,
+        },
+      })
     }
 
-    // Insert the expense record - now including imageUrl
-    await sql`
-      INSERT INTO expenses (
-        id, budget_id, description, amount, date, 
-        submitted_by, notes, additional_allocation_id, image_url
-      ) VALUES (
-        ${id}, 
-        ${validatedData.budgetId}, 
-        ${validatedData.description}, 
-        ${validatedData.amount}, 
-        ${formatDateForSQL(validatedData.date)}, 
-        ${validatedData.submittedBy}, 
-        ${validatedData.notes},
-        ${additionalAllocationId},
-        ${validatedData.imageUrl} // Add the image URL
-      )
-    `
+    // Insert the expense record
+    await prisma.expense.create({
+      data: {
+        id,
+        budgetId: validatedData.budgetId,
+        description: validatedData.description,
+        amount: new Prisma.Decimal(validatedData.amount),
+        date: formatDateForDB(validatedData.date),
+        submittedBy: validatedData.submittedBy,
+        notes: validatedData.notes,
+        additionalAllocationId,
+        imageUrl: validatedData.imageUrl,
+      },
+    })
 
     // Update budget calculations - now always with isApproved=true
     await updateBudgetCalculations(validatedData.budgetId, validatedData.amount, true)
@@ -157,49 +152,33 @@ export async function createExpense(formData: FormData) {
   }
 }
 
-// Remove the commented-out updateExpenseStatus function entirely since it's no longer needed.
-
 // Update the getExpenses function to include imageUrl
 export async function getExpenses() {
   try {
     // Get all expenses with budget name
-    const expenses = await sql<
-      {
-        id: string
-        budget_id: string
-        budget_name: string
-        description: string
-        amount: number
-        date: string
-        submitted_by: string
-        submitted_at: string
-        notes: string | null
-        additional_allocation_id: string | null
-        image_url: string | null // Add this field
-      }[]
-    >`
-      SELECT 
-        e.*, 
-        b.name as budget_name
-      FROM expenses e
-      JOIN budgets b ON e.budget_id = b.id
-      ORDER BY e.submitted_at DESC
-    `
+    const expenses = await prisma.expense.findMany({
+      include: {
+        budget: true,
+      },
+      orderBy: {
+        submittedAt: "desc",
+      },
+    })
 
     return {
       success: true,
       expenses: expenses.map((expense) => ({
         id: expense.id,
-        budgetId: expense.budget_id,
-        budgetName: expense.budget_name,
+        budgetId: expense.budgetId,
+        budgetName: expense.budget.name,
         description: expense.description,
-        amount: expense.amount,
-        date: expense.date,
-        submittedBy: expense.submitted_by,
-        submittedAt: expense.submitted_at,
+        amount: Number(expense.amount),
+        date: expense.date.toISOString().split("T")[0],
+        submittedBy: expense.submittedBy,
+        submittedAt: expense.submittedAt.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additional_allocation_id || undefined,
-        imageUrl: expense.image_url || undefined, // Include imageUrl in the response
+        additionalAllocationId: expense.additionalAllocationId || undefined,
+        imageUrl: expense.imageUrl || undefined,
       })),
     }
   } catch (error) {
@@ -215,57 +194,30 @@ export async function getExpenses() {
 export async function getExpenseById(id: string) {
   try {
     // Get the expense with budget name
-    const expenses = await sql<
-      {
-        id: string
-        budget_id: string
-        budget_name: string
-        description: string
-        amount: number
-        date: string
-        submitted_by: string
-        submitted_at: string
-        notes: string | null
-        additional_allocation_id: string | null
-        image_url: string | null // Add this field
-      }[]
-    >`
-      SELECT 
-        e.*, 
-        b.name as budget_name
-      FROM expenses e
-      JOIN budgets b ON e.budget_id = b.id
-      WHERE e.id = ${id}
-    `
+    const expense = await prisma.expense.findUnique({
+      where: { id },
+      include: {
+        budget: true,
+      },
+    })
 
-    if (expenses.length === 0) {
+    if (!expense) {
       return { success: false, error: "Expense not found" }
     }
 
-    const expense = expenses[0]
-
     // If there's an additional allocation, get its details
     let additionalAllocation = null
-    if (expense.additional_allocation_id) {
-      const allocations = await sql<
-        {
-          id: string
-          amount: number
-          status: string
-          reason: string
-        }[]
-      >`
-        SELECT id, amount, status, reason
-        FROM additional_allocations
-        WHERE id = ${expense.additional_allocation_id}
-      `
+    if (expense.additionalAllocationId) {
+      const allocation = await prisma.additionalAllocation.findUnique({
+        where: { id: expense.additionalAllocationId },
+      })
 
-      if (allocations.length > 0) {
+      if (allocation) {
         additionalAllocation = {
-          id: allocations[0].id,
-          amount: allocations[0].amount,
-          status: allocations[0].status,
-          reason: allocations[0].reason,
+          id: allocation.id,
+          amount: Number(allocation.amount),
+          status: "approved", // All allocations are approved
+          reason: allocation.reason,
         }
       }
     }
@@ -274,17 +226,17 @@ export async function getExpenseById(id: string) {
       success: true,
       expense: {
         id: expense.id,
-        budgetId: expense.budget_id,
-        budgetName: expense.budget_name,
+        budgetId: expense.budgetId,
+        budgetName: expense.budget.name,
         description: expense.description,
-        amount: expense.amount,
-        date: expense.date,
-        submittedBy: expense.submitted_by,
-        submittedAt: expense.submitted_at,
+        amount: Number(expense.amount),
+        date: expense.date.toISOString().split("T")[0],
+        submittedBy: expense.submittedBy,
+        submittedAt: expense.submittedAt.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additional_allocation_id || undefined,
+        additionalAllocationId: expense.additionalAllocationId || undefined,
         additionalAllocation,
-        imageUrl: expense.image_url || undefined, // Include imageUrl in the response
+        imageUrl: expense.imageUrl || undefined,
       },
     }
   } catch (error) {
@@ -299,44 +251,30 @@ export async function getExpenseById(id: string) {
 // New function to get expenses by budget ID
 export async function getExpensesByBudgetId(budgetId: string) {
   try {
-    const expenses = await sql<
-      {
-        id: string
-        budget_id: string
-        budget_name: string
-        description: string
-        amount: number
-        date: string
-        submitted_by: string
-        submitted_at: string
-        notes: string | null
-        additional_allocation_id: string | null
-        image_url: string | null
-      }[]
-    >`
-      SELECT 
-        e.*, 
-        b.name as budget_name
-      FROM expenses e
-      JOIN budgets b ON e.budget_id = b.id
-      WHERE e.budget_id = ${budgetId}
-      ORDER BY e.submitted_at DESC
-    `
+    const expenses = await prisma.expense.findMany({
+      where: { budgetId },
+      include: {
+        budget: true,
+      },
+      orderBy: {
+        submittedAt: "desc",
+      },
+    })
 
     return {
       success: true,
       expenses: expenses.map((expense) => ({
         id: expense.id,
-        budgetId: expense.budget_id,
-        budgetName: expense.budget_name,
+        budgetId: expense.budgetId,
+        budgetName: expense.budget.name,
         description: expense.description,
-        amount: expense.amount,
-        date: expense.date,
-        submittedBy: expense.submitted_by,
-        submittedAt: expense.submitted_at,
+        amount: Number(expense.amount),
+        date: expense.date.toISOString().split("T")[0],
+        submittedBy: expense.submittedBy,
+        submittedAt: expense.submittedAt.toISOString(),
         notes: expense.notes || undefined,
-        additionalAllocationId: expense.additional_allocation_id || undefined,
-        imageUrl: expense.image_url || undefined,
+        additionalAllocationId: expense.additionalAllocationId || undefined,
+        imageUrl: expense.imageUrl || undefined,
       })),
     }
   } catch (error) {
@@ -351,27 +289,27 @@ export async function getExpensesByBudgetId(budgetId: string) {
 // New function to get expense summary
 export async function getExpenseSummary() {
   try {
-    const result = await sql<
-      {
-        total: number
-        approved: number
-        pending: number
-        with_allocation: number
-      }[]
-    >`
-      SELECT 
-        COALESCE(SUM(amount), 0) AS total,
-        COALESCE(SUM(CASE WHEN additional_allocation_id IS NULL THEN amount ELSE 0 END), 0) AS approved,
-        0 AS pending,
-        COALESCE(SUM(CASE WHEN additional_allocation_id IS NOT NULL THEN amount ELSE 0 END), 0) AS with_allocation
-      FROM expenses
-    `
+    // Get all expenses
+    const expenses = await prisma.expense.findMany()
+
+    // Calculate summary values
+    const total = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
+
+    // Calculate approved (without additional allocation)
+    const approved = expenses
+      .filter((expense) => !expense.additionalAllocationId)
+      .reduce((sum, expense) => sum + Number(expense.amount), 0)
+
+    // Calculate with allocation
+    const withAllocation = expenses
+      .filter((expense) => expense.additionalAllocationId)
+      .reduce((sum, expense) => sum + Number(expense.amount), 0)
 
     const summary = {
-      total: Number(result[0]?.total || 0),
-      approved: Number(result[0]?.approved || 0),
-      pending: Number(result[0]?.pending || 0),
-      withAllocation: Number(result[0]?.with_allocation || 0),
+      total,
+      approved,
+      pending: 0, // All expenses are approved
+      withAllocation,
     }
 
     return { success: true, summary }
