@@ -18,10 +18,18 @@ import { useUserRole } from "@/hooks/use-user-role"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useTheme } from "next-themes"
 import { motion } from "framer-motion"
+import { logout } from "@/app/actions/auth-actions"
+import { useRouter } from "next/navigation"
 
 export function Header() {
   const { role, user } = useUserRole()
   const { setTheme, theme } = useTheme()
+  const router = useRouter()
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/")
+  }
 
   return (
     <header className="sticky top-0 z-50 flex h-16 items-center gap-4 border-b border-white/10 bg-white/80 backdrop-blur-md dark:bg-black/50 px-4 sm:px-6 lg:ml-64 w-full lg:w-[calc(100%-16rem)]">
@@ -126,7 +134,7 @@ export function Header() {
             </DropdownMenuItem>
             <DropdownMenuItem className="rounded-lg cursor-pointer">Pengaturan</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="rounded-lg cursor-pointer">Keluar</DropdownMenuItem>
+            <DropdownMenuItem className="rounded-lg cursor-pointer" onClick={handleLogout}>Keluar</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

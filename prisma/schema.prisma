@@ -90,16 +90,28 @@ model BudgetUsageHistory {
 enum Role {
   ADMIN
   USER
+  FINANCE
+  SUPERVISOR
+  AUDITOR
 }
 
 // User model for authentication
 model User {
-  id         String    @id @default(uuid())
-  username   String    @unique
-  password   String
-  role       Role      @default(USER)
-  created_at DateTime  @default(now())
-  updated_at DateTime?
+  id            String    @id @default(uuid())
+  username      String    @unique
+  password      String
+  email         String?   @unique
+  name          String?
+  role          Role      @default(USER)
+  department    String?
+  profile_image String?
+  last_login    DateTime?
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Add any additional relations here
+  // Example: created_budgets Budget[] @relation("CreatedBy")
 
   @@map("users")
 }

@@ -5,7 +5,7 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { getCurrentUser } from "@/app/actions/auth-actions"
 
-export default function DashboardLayout({
+export default function PengaturanLayout({
   children,
 }: {
   children: React.ReactNode
@@ -24,4 +24,4 @@ export default function DashboardLayout({
   }, [router]);
 
   return <AppLayout>{children}</AppLayout>
-}
+} 
