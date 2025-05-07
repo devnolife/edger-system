@@ -16,4 +16,11 @@ NEXT_PUBLIC_API_URL="http://localhost:3000/api"
 # Storage (for image uploads)
 # NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME="your-cloud-name"
 # CLOUDINARY_API_KEY="your-api-key"
-# CLOUDINARY_API_SECRET="your-api-secret" 
+# CLOUDINARY_API_SECRET="your-api-secret"
+
+# MinIO configuration
+MINIO_ENDPOINT="http://localhost:9000"
+MINIO_ACCESS_KEY="YOUR_MINIO_ACCESS_KEY"
+MINIO_SECRET_KEY="YOUR_MINIO_SECRET_KEY"
+MINIO_BUCKET="YOUR_MINIO_BUCKET_NAME"
+MINIO_REGION="us-east-1" 
