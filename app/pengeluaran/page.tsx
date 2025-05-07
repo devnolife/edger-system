@@ -54,7 +54,7 @@ import {
   createExpense,
   getExpenseById,
   getExpenseSummary,
-  type Expense,
+  type Expense as BaseExpense,
 } from "@/app/actions/expense-actions"
 import { getBudgets, getBudgetById } from "@/app/actions/budget-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
@@ -67,6 +67,16 @@ import Image from "next/image"
 // Type for sorting options
 type SortField = "date" | "amount" | "description" | "budgetName"
 type SortDirection = "asc" | "desc"
+
+// Extend the Expense type to include additionalAllocation
+interface Expense extends BaseExpense {
+  additionalAllocation?: {
+    id: string;
+    amount: number;
+    status: string;
+    reason: string;
+  } | null;
+}
 
 export default function Pengeluaran() {
   const { user } = useUserRole()
@@ -129,10 +139,36 @@ export default function Pengeluaran() {
   const [needsAllocation, setNeedsAllocation] = useState(false)
   const [budgetPercentage, setBudgetPercentage] = useState(0)
 
+  // Function to refresh expense data
+  const refreshExpenseData = useCallback(async () => {
+    try {
+      // Fetch expenses with a small delay to prevent rate limiting
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const expensesResult = await getExpenses()
+      if (expensesResult.success && expensesResult.expenses) {
+        setExpenses(expensesResult.expenses as Expense[])
+      }
+
+      // Fetch summary with a small delay
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const summaryResult = await getExpenseSummary()
+      if (summaryResult.success && summaryResult.summary) {
+        setSummary({
+          total: Number(summaryResult.summary.total) || 0,
+          approved: Number(summaryResult.summary.approved) || 0,
+          pending: Number(summaryResult.summary.pending) || 0,
+          withAllocation: Number(summaryResult.summary.withAllocation) || 0,
+        })
+      }
+    } catch (error) {
+      console.error("Error refreshing expense data:", error)
+    }
+  }, [])
+
   // Use the budget updates hook to listen for updates
   const { lastUpdate } = useBudgetUpdates(
     useCallback(
-      (event) => {
+      (event: { budgetId: string; expenseAmount: number }) => {
         // If the updated budget is the currently selected budget, update it
         if (selectedBudget && event.budgetId === selectedBudget.id) {
           setSelectedBudget((prev) => {
@@ -158,30 +194,9 @@ export default function Pengeluaran() {
         // Refresh expense data after a budget update
         refreshExpenseData()
       },
-      [selectedBudget],
+      [selectedBudget, refreshExpenseData],
     ),
   )
-
-  // Function to refresh expense data
-  const refreshExpenseData = useCallback(async () => {
-    try {
-      // Fetch expenses with a small delay to prevent rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const expensesResult = await getExpenses()
-      if (expensesResult.success) {
-        setExpenses(expensesResult.expenses)
-      }
-
-      // Fetch summary with a small delay
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const summaryResult = await getExpenseSummary()
-      if (summaryResult.success) {
-        setSummary(summaryResult.summary)
-      }
-    } catch (error) {
-      console.error("Error refreshing expense data:", error)
-    }
-  }, [])
 
   // Fetch expenses, budgets, and summary on component mount
   useEffect(() => {
@@ -190,8 +205,8 @@ export default function Pengeluaran() {
       try {
         // Fetch expenses
         const expensesResult = await getExpenses()
-        if (expensesResult.success) {
-          setExpenses(expensesResult.expenses)
+        if (expensesResult.success && expensesResult.expenses) {
+          setExpenses(expensesResult.expenses as Expense[])
         } else {
           toast({
             title: "Error",
@@ -214,7 +229,7 @@ export default function Pengeluaran() {
             await new Promise((resolve) => setTimeout(resolve, 300))
 
             const budgetResult = await getBudgetById(budgetIdParam)
-            if (budgetResult.success) {
+            if (budgetResult.success && budgetResult.budget) {
               // Ensure numeric values are properly parsed
               const budget = budgetResult.budget
               setSelectedBudget({
@@ -239,12 +254,12 @@ export default function Pengeluaran() {
 
         // Fetch summary
         const summaryResult = await getExpenseSummary()
-        if (summaryResult.success) {
+        if (summaryResult.success && summaryResult.summary) {
           setSummary({
-            total: Number(summaryResult.summary.total),
-            approved: Number(summaryResult.summary.approved),
-            pending: Number(summaryResult.summary.pending),
-            withAllocation: Number(summaryResult.summary.withAllocation),
+            total: Number(summaryResult.summary.total) || 0,
+            approved: Number(summaryResult.summary.approved) || 0,
+            pending: Number(summaryResult.summary.pending) || 0,
+            withAllocation: Number(summaryResult.summary.withAllocation) || 0,
           })
         }
 
@@ -252,8 +267,8 @@ export default function Pengeluaran() {
         if (expenseIdParam) {
           await new Promise((resolve) => setTimeout(resolve, 300))
           const result = await getExpenseById(expenseIdParam)
-          if (result.success) {
-            setSelectedExpense(result.expense)
+          if (result.success && result.expense) {
+            setSelectedExpense(result.expense as Expense)
             setIsDetailsOpen(true)
           }
         }
@@ -342,7 +357,7 @@ export default function Pengeluaran() {
       setIsProcessing(true)
 
       const result = await getBudgetById(value)
-      if (result.success) {
+      if (result.success && result.budget) {
         // Ensure numeric values are properly parsed
         const budget = result.budget
         setSelectedBudget({
@@ -403,10 +418,46 @@ export default function Pengeluaran() {
   // Handle expense creation
   const handleCreateExpense = async () => {
     // Validate required fields
-    if (!budgetId || !description || !amount || !expenseDate || !imageUrl) {
+    if (!budgetId) {
       toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields including the receipt image",
+        title: "Validasi Gagal",
+        description: "Silakan pilih anggaran terlebih dahulu",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!description) {
+      toast({
+        title: "Validasi Gagal",
+        description: "Deskripsi pengeluaran wajib diisi",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!amount) {
+      toast({
+        title: "Validasi Gagal",
+        description: "Jumlah pengeluaran wajib diisi",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!expenseDate) {
+      toast({
+        title: "Validasi Gagal",
+        description: "Tanggal pengeluaran wajib diisi",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!imageUrl) {
+      toast({
+        title: "Validasi Gagal",
+        description: "Bukti pengeluaran (foto) wajib diupload",
         variant: "destructive",
       })
       return
@@ -433,10 +484,10 @@ export default function Pengeluaran() {
       if (result.success) {
         // Show success message
         toast({
-          title: "Success",
+          title: "Berhasil",
           description: result.needsAllocation
-            ? "Expense created successfully with additional allocation request"
-            : "Expense created successfully",
+            ? "Pengeluaran berhasil dicatat dengan permintaan alokasi tambahan"
+            : "Pengeluaran berhasil dicatat",
         })
 
         // Emit budget update event if budgetId and expenseAmount are returned
@@ -446,25 +497,6 @@ export default function Pengeluaran() {
 
         // Refresh expenses
         await refreshExpenseData()
-
-        // Refresh the selected budget to show updated amounts
-        if (budgetId) {
-          const budgetResult = await getBudgetById(budgetId)
-          if (budgetResult.success) {
-            const budget = budgetResult.budget
-            setSelectedBudget({
-              id: budget.id,
-              name: budget.name,
-              availableAmount: Number(budget.availableAmount),
-              amount: Number(budget.amount),
-              spentAmount: Number(budget.spentAmount),
-            })
-
-            // Update budget usage percentage
-            const percentage = (Number(budget.spentAmount) / Number(budget.amount)) * 100
-            setBudgetPercentage(percentage)
-          }
-        }
 
         // Reset form and close dialog
         setBudgetId(budgetIdParam || "")
@@ -477,10 +509,10 @@ export default function Pengeluaran() {
         setImageUrl("") // Reset the image URL
         setIsDialogOpen(false)
       } else {
-        // Show error message
+        // Show specific error message
         toast({
-          title: "Error",
-          description: result.error || "Failed to create expense",
+          title: "Gagal",
+          description: result.error || "Gagal mencatat pengeluaran. Silakan coba lagi.",
           variant: "destructive",
         })
       }
@@ -488,7 +520,7 @@ export default function Pengeluaran() {
       console.error("Error creating expense:", error)
       toast({
         title: "Error",
-        description: "An unexpected error occurred",
+        description: "Terjadi kesalahan tak terduga. Silakan coba lagi.",
         variant: "destructive",
       })
     } finally {
@@ -503,8 +535,8 @@ export default function Pengeluaran() {
     try {
       setIsProcessing(true)
       const result = await getExpenseById(expense.id)
-      if (result.success) {
-        setSelectedExpense(result.expense)
+      if (result.success && result.expense) {
+        setSelectedExpense(result.expense as Expense)
         setIsDetailsOpen(true)
         setActiveTab("details")
       } else {
@@ -567,10 +599,9 @@ export default function Pengeluaran() {
               </Button>
             </motion.div>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px] rounded-2xl">
+          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto rounded-2xl">
             <DialogHeader>
               <DialogTitle className="text-xl font-display">Catat Pengeluaran Baru</DialogTitle>
-              <DialogDescription>Isi detail pengeluaran baru. Klik simpan setelah selesai.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4 relative">
               {isProcessing && (
@@ -608,7 +639,7 @@ export default function Pengeluaran() {
                         <span className="font-medium">{formatRupiah(selectedBudget.spentAmount)}</span>
                         <BudgetUpdateIndicator
                           budgetId={selectedBudget.id}
-                          lastUpdateBudgetId={lastUpdate?.budgetId}
+                          lastUpdateBudgetId={lastUpdate?.budgetId || null}
                           expenseAmount={lastUpdate?.expenseAmount || 0}
                           className="mt-1"
                         />
@@ -631,13 +662,12 @@ export default function Pengeluaran() {
                       </div>
                       <Progress
                         value={budgetPercentage}
-                        className={`h-2 rounded-full ${
-                          budgetPercentage > 90
-                            ? "bg-red-500"
-                            : budgetPercentage > 70
-                              ? "bg-yellow-500"
-                              : "bg-green-600"
-                        }`}
+                        className={`h-2 rounded-full ${budgetPercentage > 90
+                          ? "bg-red-500"
+                          : budgetPercentage > 70
+                            ? "bg-yellow-500"
+                            : "bg-green-600"
+                          }`}
                       />
                     </div>
                   </div>
@@ -649,14 +679,15 @@ export default function Pengeluaran() {
                 <Input
                   id="description"
                   placeholder="Masukkan deskripsi pengeluaran"
-                  className="rounded-lg"
+                  className="rounde
+                          d-lg"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+                <div className="spe-y-2">
                   <Label htmlFor="amount">Jumlah Pengeluaran</Label>
                   <RupiahInput
                     id="amount"
@@ -693,7 +724,7 @@ export default function Pengeluaran() {
                 <Textarea
                   id="notes"
                   placeholder="Tambahkan catatan atau detail tambahan"
-                  className="rounded-lg"
+                  className="rounded-lg mb-0"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />
@@ -1089,38 +1120,38 @@ export default function Pengeluaran() {
 
       {/* Expense Details Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="sm:max-w-[800px] rounded-2xl p-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[680px] rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
           {selectedExpense && (
             <>
-              <div className="bg-gradient-to-r from-primary to-secondary p-6 text-white">
+              <div className="bg-gradient-to-r from-primary to-secondary p-3 text-white">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-xl font-bold mb-1">{selectedExpense.description}</h2>
-                    <div className="flex items-center gap-2 text-white/80">
+                    <h2 className="text-base font-bold">{selectedExpense.description}</h2>
+                    <div className="flex items-center gap-1 text-white/80 text-xs">
                       <span>{formatRupiah(selectedExpense.amount)}</span>
                       <span>•</span>
                       <span>{selectedExpense.date}</span>
                     </div>
                   </div>
-                  <Badge className="bg-white/20 hover:bg-white/30 text-white border-none">
+                  <Badge className="bg-white/20 hover:bg-white/30 text-white border-none text-xs">
                     {selectedExpense.additionalAllocationId ? "Dengan Alokasi Tambahan" : "Pengeluaran Reguler"}
                   </Badge>
                 </div>
               </div>
 
-              <Tabs defaultValue="details" value={activeTab} onValueChange={setActiveTab} className="p-6">
+              <Tabs defaultValue="details" value={activeTab} onValueChange={setActiveTab} className="p-3 flex-1 flex flex-col overflow-hidden">
                 <TabsList className="grid w-full grid-cols-2 rounded-full">
-                  <TabsTrigger value="details" className="rounded-full">
+                  <TabsTrigger value="details" className="rounded-full text-xs py-1">
                     Detail Pengeluaran
                   </TabsTrigger>
-                  <TabsTrigger value="receipt" className="rounded-full">
+                  <TabsTrigger value="receipt" className="rounded-full text-xs py-1">
                     Bukti Pengeluaran
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="details" className="mt-6 space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="bg-muted/30 p-4 rounded-lg">
+                <TabsContent value="details" className="mt-1 overflow-y-auto pr-1" style={{ maxHeight: '350px' }}>
+                  <div className="grid grid-cols-3 gap-1">
+                    <div className="bg-muted/30 p-2 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
                         <FileText className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">ID Pengeluaran</span>
@@ -1128,7 +1159,7 @@ export default function Pengeluaran() {
                       <p className="font-medium">{selectedExpense.id}</p>
                     </div>
 
-                    <div className="bg-muted/30 p-4 rounded-lg">
+                    <div className="bg-muted/30 p-2 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
                         <Wallet className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">Anggaran</span>
@@ -1137,7 +1168,7 @@ export default function Pengeluaran() {
                       <p className="text-xs text-muted-foreground mt-1">{selectedExpense.budgetId}</p>
                     </div>
 
-                    <div className="bg-muted/30 p-4 rounded-lg">
+                    <div className="bg-muted/30 p-2 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
                         <User className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">Diajukan Oleh</span>
@@ -1156,7 +1187,7 @@ export default function Pengeluaran() {
                   </div>
 
                   {selectedExpense.notes && (
-                    <div className="bg-muted/30 p-4 rounded-lg">
+                    <div className="bg-muted/30 p-2 rounded-lg mt-1">
                       <div className="flex items-center gap-2 mb-2">
                         <Info className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm font-medium">Catatan</span>
@@ -1165,48 +1196,44 @@ export default function Pengeluaran() {
                     </div>
                   )}
 
-                  {selectedExpense.additionalAllocation && (
-                    <div className="border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-900 p-4 rounded-lg">
+                  {selectedExpense && selectedExpense.additionalAllocationId && (
+                    <div className="border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-900 p-2 rounded-lg mt-1">
                       <h3 className="text-blue-800 dark:text-blue-300 font-medium mb-3 flex items-center gap-2">
                         <Info className="h-4 w-4" />
                         Informasi Alokasi Tambahan
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-3 gap-1">
                         <div>
                           <h4 className="text-sm text-blue-700 dark:text-blue-400">ID Alokasi</h4>
                           <p className="font-medium">{selectedExpense.additionalAllocationId}</p>
                         </div>
-                        <div>
-                          <h4 className="text-sm text-blue-700 dark:text-blue-400">Jumlah Alokasi Tambahan</h4>
-                          <p className="font-medium">{formatRupiah(selectedExpense.additionalAllocation.amount)}</p>
-                        </div>
-                        <div className="md:col-span-2">
-                          <h4 className="text-sm text-blue-700 dark:text-blue-400">Alasan</h4>
-                          <p>{selectedExpense.additionalAllocation.reason}</p>
-                        </div>
+                        {selectedExpense.additionalAllocation && (
+                          <>
+                            <div>
+                              <h4 className="text-sm text-blue-700 dark:text-blue-400">Jumlah Alokasi Tambahan</h4>
+                              <p className="font-medium">{formatRupiah(selectedExpense.additionalAllocation.amount)}</p>
+                            </div>
+                            <div className="md:col-span-3">
+                              <h4 className="text-sm text-blue-700 dark:text-blue-400">Alasan</h4>
+                              <p>{selectedExpense.additionalAllocation.reason}</p>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
                 </TabsContent>
 
-                <TabsContent value="receipt" className="mt-6">
+                <TabsContent value="receipt" className="mt-2 overflow-y-auto" style={{ maxHeight: '350px' }}>
                   {selectedExpense?.imageUrl ? (
-                    <div className="space-y-4">
-                      <div className="relative aspect-[3/4] w-full max-h-[500px] bg-muted/30 rounded-lg overflow-hidden">
+                    <div className="space-y-2">
+                      <div className="relative aspect-auto h-[160px] w-full bg-muted/30 rounded-lg overflow-hidden">
                         <Image
                           src={selectedExpense.imageUrl || "/placeholder.svg"}
                           alt="Receipt"
                           fill
                           className="object-contain"
                         />
-                      </div>
-                      <div className="flex justify-center">
-                        <Button variant="outline" className="rounded-full" asChild>
-                          <a href={selectedExpense.imageUrl} target="_blank" rel="noopener noreferrer">
-                            <Eye className="h-4 w-4 mr-2" />
-                            Lihat Gambar Asli
-                          </a>
-                        </Button>
                       </div>
                     </div>
                   ) : (
@@ -1221,8 +1248,8 @@ export default function Pengeluaran() {
                 </TabsContent>
               </Tabs>
 
-              <div className="p-4 border-t flex justify-end">
-                <Button variant="outline" className="rounded-full" onClick={() => setIsDetailsOpen(false)}>
+              <div className="p-1 border-t flex justify-end">
+                <Button variant="outline" className="rounded-full text-xs py-0.5 h-6" onClick={() => setIsDetailsOpen(false)}>
                   Tutup
                 </Button>
               </div>

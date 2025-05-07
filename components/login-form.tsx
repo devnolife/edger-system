@@ -25,6 +25,7 @@ export default function LoginForm() {
 
     try {
       const formData = new FormData(e.currentTarget)
+      formData.append("_method", "POST") // Ensure POST method is used
       const result = await login(formData)
 
       if (result.success) {
@@ -43,7 +44,13 @@ export default function LoginForm() {
         })
       }
     } catch (error) {
+      console.error("Login error:", error)
       setErrorMessage("Terjadi kesalahan, silakan coba lagi")
+      toast({
+        title: "Error",
+        description: "Terjadi kesalahan saat menghubungi server",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
@@ -126,7 +133,7 @@ export default function LoginForm() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-5" method="post">
               {errorMessage && (
                 <div className="bg-red-50 text-red-800 p-3 rounded-md text-sm">
                   {errorMessage}

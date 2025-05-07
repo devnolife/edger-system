@@ -66,16 +66,14 @@ export async function login(formData: FormData) {
     );
 
     // Set HTTP-only cookie
-    (await
-      // Set HTTP-only cookie
-      cookies()).set({
-        name: "auth-token",
-        value: token,
-        httpOnly: true,
-        path: "/",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 3, // 3 hours
-      });
+    (await cookies()).set({
+      name: "auth-token",
+      value: token,
+      httpOnly: true,
+      path: "/",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 3, // 3 hours
+    });
 
     return {
       success: true,
