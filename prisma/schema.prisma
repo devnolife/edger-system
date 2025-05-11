@@ -88,11 +88,8 @@ model BudgetUsageHistory {
 
 // Role enum for user roles
 enum Role {
-  ADMIN
-  USER
-  FINANCE
+  OPERATOR
   SUPERVISOR
-  AUDITOR
 }
 
 // User model for authentication
@@ -102,7 +99,7 @@ model User {
   password      String
   email         String?   @unique
   name          String?
-  role          Role      @default(USER)
+  role          Role      @default(OPERATOR)
   department    String?
   profile_image String?
   last_login    DateTime?

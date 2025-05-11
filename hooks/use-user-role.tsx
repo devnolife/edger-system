@@ -3,7 +3,7 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 
-type UserRole = "superadmin" | "admin" | "operator"
+type UserRole = "supervisor" | "users" | "operator"
 
 type User = {
   id: string
@@ -21,11 +21,11 @@ type UserRoleContextType = {
 const UserRoleContext = createContext<UserRoleContextType>({
   role: "operator",
   user: null,
-  setRole: () => {},
+  setRole: () => { },
 })
 
 export function UserRoleProvider({ children }: { children: React.ReactNode }) {
-  const [role, setRole] = useState<UserRole>("superadmin")
+  const [role, setRole] = useState<UserRole>("supervisor")
   const [user, setUser] = useState<User | null>(null)
 
   // Simulasi pengambilan data pengguna
@@ -33,7 +33,7 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     // Dalam aplikasi nyata, ini akan menjadi panggilan API
     const mockUser: User = {
       id: "1",
-      name: "Admin Pengguna",
+      name: "Supervisor",
       email: "admin@example.com",
       role: role,
     }
