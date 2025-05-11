@@ -9,16 +9,27 @@ async function main() {
 
   // Hash passwords
   const saltRounds = 10;
-  const adminPasswordHash = await bcrypt.hash('password123', saltRounds);
-  const userPasswordHash = await bcrypt.hash('password123', saltRounds);
+  const operatorPasswordHash = await bcrypt.hash('password123', saltRounds);
+  const supervisorPasswordHash = await bcrypt.hash('password123', saltRounds);
 
   // Seed users for login
   await prisma.user.create({
-    data: { username: 'admin', password: adminPasswordHash, role: 'ADMIN' }
+    data: {
+      username: 'operator',
+      password: operatorPasswordHash,
+      role: 'OPERATOR'
+    }
   });
+
   await prisma.user.create({
-    data: { username: 'user', password: userPasswordHash, role: 'USER' }
+    data: {
+      username: 'supervisor',
+      password: supervisorPasswordHash,
+      role: 'SUPERVISOR',
+    }
   });
+
+  console.log('Seed completed: Created operator and supervisor users');
 }
 
 main()

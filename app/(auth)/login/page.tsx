@@ -11,6 +11,16 @@ import { login } from "@/app/actions/auth-actions"
 import { useToast } from "@/components/ui/use-toast"
 import Image from "next/image"
 
+interface LoginResult {
+  success: boolean;
+  error?: string;
+  user?: {
+    id: string;
+    username: string;
+    role: string;
+  };
+}
+
 export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -26,15 +36,24 @@ export default function LoginForm() {
     try {
       const formData = new FormData(e.currentTarget)
       formData.append("_method", "POST") // Ensure POST method is used
-      const result = await login(formData)
+      const result = await login(formData) as LoginResult
 
-      if (result.success) {
+      if (result.success && result.user) {
         toast({
           title: "Login berhasil",
           description: "Mengalihkan ke dashboard...",
           variant: "default",
         })
-        router.push("/dashboard")
+
+        // Redirect based on user role
+        const userRole = result.user.role
+        if (userRole === "SUPERVISOR") {
+          router.push("/supervisor")
+        } else if (userRole === "OPERATOR") {
+          router.push("/operator/dashboard")
+        } else {
+          router.push("/dashboard") // Fallback
+        }
       } else {
         setErrorMessage(result.error || "Login gagal, silakan coba lagi")
         toast({

@@ -97,18 +97,10 @@ model User {
   id            String    @id @default(uuid())
   username      String    @unique
   password      String
-  email         String?   @unique
-  name          String?
   role          Role      @default(OPERATOR)
-  department    String?
-  profile_image String?
   last_login    DateTime?
-  is_active     Boolean   @default(true)
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
-
-  // Add any additional relations here
-  // Example: created_budgets Budget[] @relation("CreatedBy")
 
   @@map("users")
 }

@@ -6,7 +6,6 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { sign, verify } from "jsonwebtoken";
-import { SignOptions } from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
@@ -66,13 +65,19 @@ export async function login(formData: FormData) {
     );
 
     // Set HTTP-only cookie
-    (await cookies()).set({
+    cookies().set({
       name: "auth-token",
       value: token,
       httpOnly: true,
       path: "/",
       secure: process.env.NODE_ENV === "production",
       maxAge: 60 * 60 * 3, // 3 hours
+    });
+
+    // Update last login time
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { last_login: new Date() },
     });
 
     return {
@@ -93,13 +98,13 @@ export async function login(formData: FormData) {
 }
 
 export async function logout() {
-  (await cookies()).delete("auth-token");
+  cookies().delete("auth-token");
   redirect("/");
 }
 
 export async function getCurrentUser() {
   try {
-    const token = (await cookies()).get("auth-token")?.value;
+    const token = cookies().get("auth-token")?.value;
 
     if (!token) {
       return null;
@@ -120,12 +125,15 @@ export async function getCurrentUser() {
         id: true,
         username: true,
         role: true,
+        name: true,
+        email: true,
+        department: true,
       },
     });
 
     return user;
   } catch (error) {
-    (await cookies()).delete("auth-token");
+    cookies().delete("auth-token");
     return null;
   }
 }
@@ -134,17 +142,27 @@ export async function requireAuth() {
   const user = await getCurrentUser();
 
   if (!user) {
-    redirect("/");
+    redirect("/login");
   }
 
   return user;
 }
 
-export async function isAdmin() {
+export async function requireRole(allowedRoles: string[]) {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== "ADMIN") {
-    redirect("/dashboard");
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (!allowedRoles.includes(user.role)) {
+    if (user.role === "OPERATOR") {
+      redirect("/operator/dashboard");
+    } else if (user.role === "SUPERVISOR") {
+      redirect("/supervisor");
+    } else {
+      redirect("/dashboard");
+    }
   }
 
   return user;
