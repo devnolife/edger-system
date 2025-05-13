@@ -89,19 +89,15 @@ model BudgetUsageHistory {
 
 // Role enum for user roles
 enum Role {
-  ADMIN
-  USER
-  FINANCE
   SUPERVISOR
-  AUDITOR
+  OPERATOR
 }
 
-// User model for authentication
 model User {
   id            String    @id @default(uuid())
   username      String    @unique
   password      String
-  role          Role      @default(USER)
+  role          Role      @default(OPERATOR)
   last_login    DateTime?
   is_active     Boolean   @default(true)
   created_at    DateTime  @default(now())

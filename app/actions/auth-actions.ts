@@ -26,7 +26,7 @@ export async function login(formData: FormData) {
 
     if (!validatedFields.success) {
       return {
-        error: "Invalid credentials",
+        error: "Username dan password harus diisi",
         success: false,
       };
     }
@@ -40,7 +40,7 @@ export async function login(formData: FormData) {
 
     if (!user) {
       return {
-        error: "User not found",
+        error: "Username tidak ditemukan",
         success: false,
       };
     }
@@ -50,7 +50,7 @@ export async function login(formData: FormData) {
 
     if (!passwordMatch) {
       return {
-        error: "Invalid password",
+        error: "Password yang Anda masukkan salah",
         success: false,
       };
     }
@@ -86,7 +86,7 @@ export async function login(formData: FormData) {
   } catch (error) {
     console.error("Login error:", error);
     return {
-      error: "An error occurred during login",
+      error: "Terjadi kesalahan saat proses login",
       success: false,
     };
   }
@@ -143,7 +143,7 @@ export async function requireAuth() {
 export async function isAdmin() {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== "ADMIN") {
+  if (!user || user.role !== "OPERATOR") {
     redirect("/dashboard");
   }
 

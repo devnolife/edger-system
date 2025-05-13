@@ -1186,6 +1186,7 @@ export default function Pengeluaran() {
         <DialogContent className="sm:max-w-[680px] rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
           {selectedExpense && (
             <>
+              <DialogTitle className="sr-only">Detail Pengeluaran</DialogTitle>
               <div className="bg-gradient-to-r from-primary to-secondary p-3 text-white">
                 <div className="flex justify-between items-start">
                   <div>

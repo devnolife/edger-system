@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "Role" AS ENUM ('SUPERVISOR', 'OPERATOR');
+
 -- CreateTable
 CREATE TABLE "budgets" (
     "id" TEXT NOT NULL,
@@ -23,7 +26,8 @@ CREATE TABLE "expenses" (
     "submitted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "notes" TEXT,
     "additional_allocation_id" TEXT,
-    "image_url" TEXT,
+    "image_object_name" TEXT,
+    "image_bucket_name" TEXT,
 
     CONSTRAINT "expenses_pkey" PRIMARY KEY ("id")
 );
@@ -55,6 +59,23 @@ CREATE TABLE "budget_usage_history" (
 
     CONSTRAINT "budget_usage_history_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateTable
+CREATE TABLE "users" (
+    "id" TEXT NOT NULL,
+    "username" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "role" "Role" NOT NULL DEFAULT 'OPERATOR',
+    "last_login" TIMESTAMP(3),
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "users_username_key" ON "users"("username");
 
 -- AddForeignKey
 ALTER TABLE "expenses" ADD CONSTRAINT "expenses_budget_id_fkey" FOREIGN KEY ("budget_id") REFERENCES "budgets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

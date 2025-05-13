@@ -50,7 +50,7 @@ export default function LoginForm() {
         if (userRole === "SUPERVISOR") {
           router.push("/supervisor")
         } else if (userRole === "OPERATOR") {
-          router.push("/operator/dashboard")
+          router.push("/dashboard")
         } else {
           router.push("/dashboard") // Fallback
         }

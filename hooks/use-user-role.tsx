@@ -3,7 +3,7 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 
-type UserRole = "superadmin" | "admin" | "operator"
+type UserRole = "SUPERVISOR" | "OPERATOR"
 
 type User = {
   id: string
@@ -19,13 +19,13 @@ type UserRoleContextType = {
 }
 
 const UserRoleContext = createContext<UserRoleContextType>({
-  role: "operator",
+  role: "OPERATOR",
   user: null,
-  setRole: () => {},
+  setRole: () => { },
 })
 
 export function UserRoleProvider({ children }: { children: React.ReactNode }) {
-  const [role, setRole] = useState<UserRole>("superadmin")
+  const [role, setRole] = useState<UserRole>("SUPERVISOR")
   const [user, setUser] = useState<User | null>(null)
 
   // Simulasi pengambilan data pengguna
