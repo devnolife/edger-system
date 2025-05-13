@@ -5,17 +5,14 @@ import type React from "react"
 import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { UploadCloud, X, Check, Bug, ChevronDown, ChevronUp } from "lucide-react"
+import { UploadCloud, X, Check } from "lucide-react"
 import Image from "next/image"
-import { uploadImage } from "@/app/actions/upload-actions"
+import { processUploadedFile } from "@/app/actions/upload-actions"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Set to true to enable debug mode with detailed logging in the UI
-const DEBUG_MODE = true;
-
 interface ImageUploadProps {
-  onImageUploaded: (url: string) => void
+  onImageUploaded: (url: string, tempFileData?: any) => void
   className?: string
 }
 
@@ -26,10 +23,6 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
   const [isSuccess, setIsSuccess] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Debug state
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-  const [showDebugInfo, setShowDebugInfo] = useState(false)
-
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -37,44 +30,30 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
     // Reset states for a new upload attempt
     setError(null)
     setIsSuccess(false)
-    setDebugInfo(null)
-
-    // Log file details for debugging
-    if (DEBUG_MODE) {
-      console.log("[Upload Debug] File selected:", {
-        name: file.name,
-        type: file.type,
-        size: `${(file.size / 1024).toFixed(2)} KB`,
-        lastModified: new Date(file.lastModified).toISOString()
-      });
-    }
-
-    // Create a preview
-    const objectUrl = URL.createObjectURL(file)
-    setPreviewUrl(objectUrl)
 
     // Upload the file
     setIsUploading(true)
 
     try {
-      console.log("[Upload Debug] Starting upload process");
       const formData = new FormData()
       formData.append("file", file)
 
-      console.log("[Upload Debug] Calling uploadImage server action");
-      const result = await uploadImage(formData)
-      console.log("[Upload Debug] Server response:", result);
+      const result = await processUploadedFile(formData)
 
-      // Store full result for debug display
-      setDebugInfo(result);
-
-      if (result.success && result.url) {
-        console.log("[Upload Debug] Upload successful, URL:", result.url);
-        onImageUploaded(result.url)
-        setIsSuccess(true)
-        setError(null)
+      if (result.success) {
+        // Check if the response contains previewUrl
+        if (result.previewUrl) {
+          // Create a preview
+          setPreviewUrl(result.previewUrl)
+          // Pass both the URL and the temp file data to parent component
+          onImageUploaded(result.previewUrl, result.tempFile)
+          setIsSuccess(true)
+          setError(null)
+        } else {
+          // In case the upload was processed but no URL was returned
+          setError("Berkas berhasil diproses tetapi tidak ada URL yang dikembalikan.")
+        }
       } else {
-        console.error("[Upload Debug] Upload failed:", result);
         let displayError = result.error || "Gagal mengunggah gambar."
 
         // Enhanced error display
@@ -86,13 +65,6 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
         }
       }
     } catch (err) {
-      console.error("[Upload Debug] Exception during upload:", err);
-      setDebugInfo({
-        unexpectedError: true,
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
-      });
-
       setError("Terjadi kesalahan tak terduga saat mengunggah.")
       setPreviewUrl(null)
       setIsSuccess(false)
@@ -108,7 +80,7 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
     setPreviewUrl(null)
     setError(null)
     setIsSuccess(false)
-    setDebugInfo(null)
+    onImageUploaded("", null) // Clear the image URL and temp file data
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
@@ -120,18 +92,6 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
         <Label htmlFor="receipt-image">
           Foto Bukti Pengeluaran <span className="text-red-500">*</span>
         </Label>
-
-        {DEBUG_MODE && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={() => setShowDebugInfo(!showDebugInfo)}
-          >
-            <Bug className="h-3 w-3 mr-1" />
-            Debug {showDebugInfo ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
-          </Button>
-        )}
       </div>
 
       {!previewUrl && !isUploading ? (
@@ -154,12 +114,14 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
       ) : (
         <div className="relative border rounded-lg overflow-hidden">
           <div className="aspect-video relative">
-            {isUploading && previewUrl && (
+            {isUploading && (
               <div className="absolute inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-10">
                 <LoadingSpinner size="md" text="Mengunggah..." />
               </div>
             )}
-            <Image src={previewUrl || "/placeholder.svg"} alt="Receipt preview" fill className="object-contain" />
+            {previewUrl && (
+              <Image src={previewUrl} alt="Receipt preview" fill className="object-contain" />
+            )}
           </div>
           {!isUploading && previewUrl && (
             <div className="absolute top-2 right-2 flex gap-2 z-20">
@@ -193,73 +155,8 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
       {isSuccess && previewUrl && (
         <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
           <Check className="h-4 w-4" />
-          Foto berhasil diunggah dan siap disimpan.
+          Berhasil Diunggah
         </p>
-      )}
-
-      {/* Debug Information Display */}
-      {DEBUG_MODE && debugInfo && showDebugInfo && (
-        <div className="mt-4 border border-yellow-500 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-800 rounded-md p-3 text-xs font-mono overflow-x-auto">
-          <h4 className="font-bold mb-2 text-yellow-800 dark:text-yellow-400">Debug Info</h4>
-
-          {/* Success Status */}
-          <div className="mb-2">
-            <span className="font-semibold">Status: </span>
-            <span className={debugInfo.success ? "text-green-600" : "text-red-600"}>
-              {debugInfo.success ? "SUCCESS" : "FAILED"}
-            </span>
-          </div>
-
-          {/* Error Details */}
-          {debugInfo.error && (
-            <div className="mb-2">
-              <span className="font-semibold">Error: </span>
-              <span className="text-red-600">{debugInfo.error}</span>
-            </div>
-          )}
-
-          {/* Error Type */}
-          {debugInfo.errorType && (
-            <div className="mb-2">
-              <span className="font-semibold">Error Type: </span>
-              <span className="text-red-600">{debugInfo.errorType}</span>
-            </div>
-          )}
-
-          {/* URL if present */}
-          {debugInfo.url && (
-            <div className="mb-2">
-              <span className="font-semibold">URL: </span>
-              <span className="text-green-600">{debugInfo.url.substring(0, 50)}...</span>
-            </div>
-          )}
-
-          {/* Key if present */}
-          {debugInfo.key && (
-            <div className="mb-2">
-              <span className="font-semibold">Key: </span>
-              <span>{debugInfo.key}</span>
-            </div>
-          )}
-
-          {/* Additional Details */}
-          {debugInfo.details && (
-            <div className="mb-2">
-              <div className="font-semibold mb-1">Details:</div>
-              <pre className="whitespace-pre-wrap bg-yellow-100 dark:bg-yellow-900 p-2 rounded">
-                {JSON.stringify(debugInfo.details, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* Full Response for Advanced Debugging */}
-          <div className="mt-2">
-            <div className="font-semibold mb-1">Full Response:</div>
-            <pre className="whitespace-pre-wrap bg-yellow-100 dark:bg-yellow-900 p-2 rounded">
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
-          </div>
-        </div>
       )}
     </div>
   )

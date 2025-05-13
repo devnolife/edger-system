@@ -63,6 +63,10 @@ import { emitBudgetUpdate, useBudgetUpdates } from "@/hooks/use-budget-updates"
 import { BudgetUpdateIndicator } from "@/components/budget-update-indicator"
 import { ImageUpload } from "@/components/image-upload"
 import Image from "next/image"
+import { uploadImage, finalizeUpload, getPresignedUrl } from "@/app/actions/upload-actions"
+
+// Get the MinIO bucket name from environment variable or use default
+const MINIO_BUCKET = process.env.NEXT_PUBLIC_MINIO_BUCKET || "edgersystem";
 
 // Type for sorting options
 type SortField = "date" | "amount" | "description" | "budgetName"
@@ -76,6 +80,8 @@ interface Expense extends BaseExpense {
     status: string;
     reason: string;
   } | null;
+  image_object_name?: string;
+  image_bucket_name?: string;
 }
 
 export default function Pengeluaran() {
@@ -122,6 +128,7 @@ export default function Pengeluaran() {
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
   const [imageUrl, setImageUrl] = useState("")
+  const [tempFileData, setTempFileData] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -427,10 +434,10 @@ export default function Pengeluaran() {
       return
     }
 
-    if (!description) {
+    if (!description || description.trim().length < 3) {
       toast({
         title: "Validasi Gagal",
-        description: "Deskripsi pengeluaran wajib diisi",
+        description: "Deskripsi pengeluaran harus diisi minimal 3 karakter",
         variant: "destructive",
       })
       return
@@ -454,7 +461,7 @@ export default function Pengeluaran() {
       return
     }
 
-    if (!imageUrl) {
+    if (!imageUrl || !tempFileData) {
       toast({
         title: "Validasi Gagal",
         description: "Bukti pengeluaran (foto) wajib diupload",
@@ -468,15 +475,34 @@ export default function Pengeluaran() {
     setIsProcessing(true)
 
     try {
+      // First, finalize the image upload to MinIO
+      const uploadResult = await finalizeUpload(tempFileData)
+
+      if (!uploadResult.success) {
+        toast({
+          title: "Gagal Menyimpan Gambar",
+          description: uploadResult.error || "Gagal menyimpan gambar bukti pengeluaran ke penyimpanan permanen.",
+          variant: "destructive",
+        })
+        setIsSubmitting(false)
+        setIsProcessing(false)
+        return
+      }
+
+      // Get the object name and bucket name from the upload result
+      const imageObjectName = uploadResult.objectName || ""
+      const imageBucketName = uploadResult.bucketName || MINIO_BUCKET || "edgersystem"
+
       // Prepare form data
       const formData = new FormData()
       formData.append("budgetId", budgetId)
-      formData.append("description", description)
+      formData.append("description", description.trim()) // Trim the description to remove extra whitespace
       formData.append("amount", amount)
       formData.append("date", expenseDate.toISOString().split("T")[0])
       formData.append("submittedBy", user?.name || "Unknown User")
       formData.append("notes", notes)
-      formData.append("imageUrl", imageUrl) // Add the image URL
+      formData.append("imageObjectName", imageObjectName)
+      formData.append("imageBucketName", imageBucketName)
 
       // Call the server action
       const result = await createExpense(formData)
@@ -507,20 +533,54 @@ export default function Pengeluaran() {
         setExceedsBudget(false)
         setNeedsAllocation(false)
         setImageUrl("") // Reset the image URL
+        setTempFileData(null) // Reset the temp file data
         setIsDialogOpen(false)
       } else {
-        // Show specific error message
+        // Show specific error message based on error type
+        let errorTitle = "Gagal Menyimpan Data"
+        let errorDescription = result.error || "Gagal mencatat pengeluaran. Silakan coba lagi."
+
+        // Check if it's a MinIO error
+        const errorDetails = result as { errorType?: string; error?: string }
+        if (errorDetails.errorType) {
+          switch (errorDetails.errorType) {
+            case "CONNECTION_ERROR":
+              errorTitle = "Gagal Terhubung ke Server"
+              errorDescription = "Tidak dapat terhubung ke server penyimpanan. Mohon periksa koneksi internet Anda."
+              break
+            case "AUTH_ERROR":
+              errorTitle = "Gagal Autentikasi"
+              errorDescription = "Gagal autentikasi ke server penyimpanan. Mohon hubungi administrator."
+              break
+            case "BUCKET_ERROR":
+              errorTitle = "Gagal Akses Penyimpanan"
+              errorDescription = "Tidak dapat mengakses penyimpanan. Mohon hubungi administrator."
+              break
+            case "FILE_SIZE_ERROR":
+              errorTitle = "Ukuran File Terlalu Besar"
+              errorDescription = "Ukuran file terlalu besar. Maksimal ukuran file adalah 5MB."
+              break
+            case "FILE_TYPE_ERROR":
+              errorTitle = "Tipe File Tidak Didukung"
+              errorDescription = "Tipe file tidak didukung. Hanya file gambar (JPG, PNG, GIF) yang diperbolehkan."
+              break
+            default:
+              errorTitle = "Gagal Menyimpan Data"
+              errorDescription = errorDetails.error || "Terjadi kesalahan saat menyimpan data. Silakan coba lagi."
+          }
+        }
+
         toast({
-          title: "Gagal",
-          description: result.error || "Gagal mencatat pengeluaran. Silakan coba lagi.",
+          title: errorTitle,
+          description: errorDescription,
           variant: "destructive",
         })
       }
     } catch (error) {
       console.error("Error creating expense:", error)
       toast({
-        title: "Error",
-        description: "Terjadi kesalahan tak terduga. Silakan coba lagi.",
+        title: "Error Sistem",
+        description: "Terjadi kesalahan tak terduga pada sistem. Mohon coba beberapa saat lagi atau hubungi administrator.",
         variant: "destructive",
       })
     } finally {
@@ -731,7 +791,10 @@ export default function Pengeluaran() {
               </div>
 
               <div className="space-y-2">
-                <ImageUpload onImageUploaded={(url) => setImageUrl(url)} className="mt-4" />
+                <ImageUpload onImageUploaded={(url, tempData) => {
+                  setImageUrl(url)
+                  setTempFileData(tempData)
+                }} className="mt-4" />
               </div>
 
               <AnimatePresence>
@@ -1079,10 +1142,10 @@ export default function Pengeluaran() {
                           </div>
                         </TableCell>
                         <TableCell className="w-[80px]">
-                          {expense.imageUrl ? (
+                          {expense.image_object_name ? (
                             <div className="relative h-10 w-10 cursor-pointer rounded-md overflow-hidden border">
                               <Image
-                                src={expense.imageUrl || "/placeholder.svg"}
+                                src={`/api/images/${expense.image_object_name}`}
                                 alt="Receipt"
                                 fill
                                 className="object-cover"
@@ -1225,11 +1288,11 @@ export default function Pengeluaran() {
                 </TabsContent>
 
                 <TabsContent value="receipt" className="mt-2 overflow-y-auto" style={{ maxHeight: '350px' }}>
-                  {selectedExpense?.imageUrl ? (
+                  {selectedExpense?.image_object_name ? (
                     <div className="space-y-2">
                       <div className="relative aspect-auto h-[160px] w-full bg-muted/30 rounded-lg overflow-hidden">
                         <Image
-                          src={selectedExpense.imageUrl || "/placeholder.svg"}
+                          src={`/api/images/${selectedExpense.image_object_name}`}
                           alt="Receipt"
                           fill
                           className="object-contain"

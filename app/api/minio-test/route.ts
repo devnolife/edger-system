@@ -1,121 +1,57 @@
-import { NextResponse } from "next/server"
-import * as Minio from "minio"
+import { NextResponse } from 'next/server';
+import * as Minio from 'minio';
 
-// Retrieve Environment Variables
-const RAW_MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
-const MINIO_BUCKET_ENV = process.env.MINIO_BUCKET; // Bucket to test, can be undefined here
-const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
-const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
+// Initialize MinIO Client with direct credentials
+const minioClient = new Minio.Client({
+  endPoint: "103.151.145.21",
+  port: 990,
+  useSSL: false,
+  accessKey: "NfTGaBQHPnetL8lNZvrb",
+  secretKey: "B2ypIasMJA3zD3ofbneA9Ov3brvF3m37cvz6KYsj",
+});
 
-// Validate Essential Environment Variables
-if (!RAW_MINIO_ENDPOINT) {
-  // This error will typically stop the application/route from loading if thrown at module level
-  throw new Error("CRITICAL: MINIO_ENDPOINT environment variable is not set.");
-}
-if (!MINIO_ACCESS_KEY) {
-  throw new Error("CRITICAL: MINIO_ACCESS_KEY environment variable is not set.");
-}
-if (!MINIO_SECRET_KEY) {
-  throw new Error("CRITICAL: MINIO_SECRET_KEY environment variable is not set.");
-}
-
-// Parse Endpoint
-const USE_SSL = RAW_MINIO_ENDPOINT.startsWith('https');
-const endpointWithoutProtocol = RAW_MINIO_ENDPOINT.replace(/^https?:\/\//, '');
-const endpointParts = endpointWithoutProtocol.split(':');
-const HOSTNAME = endpointParts[0];
-let PORT: number | undefined = undefined;
-
-if (endpointParts.length > 1) {
-  const parsedPort = parseInt(endpointParts[1], 10);
-  if (!isNaN(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
-    PORT = parsedPort;
-  } else {
-    console.warn(`Warning: Invalid port format or value ('${endpointParts[1]}') in MINIO_ENDPOINT. Port will not be set.`);
-    // PORT remains undefined, Minio client will use default (80 for http, 443 for https)
-  }
-}
-
-// MinIO Client Options
-const clientOptions: Minio.ClientOptions = {
-  endPoint: HOSTNAME,
-  useSSL: USE_SSL,
-  accessKey: MINIO_ACCESS_KEY,
-  secretKey: MINIO_SECRET_KEY,
-};
-
-if (PORT !== undefined) {
-  clientOptions.port = PORT;
-}
-
-// Initialize MinIO Client
-// Errors during client instantiation due to fundamentally incorrect options (not connection issues)
-// would typically occur here and prevent the module from loading.
-const minioClient = new Minio.Client(clientOptions);
-
-// Simplified configuration details for the API response
-const configurationReport = {
-  rawMinioEndpointFromEnv: RAW_MINIO_ENDPOINT,
-  bucketNameToTestViaEnv: MINIO_BUCKET_ENV || '(not set in environment)',
-  effectiveClientOptions: {
-    endPoint: HOSTNAME,
-    port: PORT, // This is the parsed port, or undefined if default is used by Minio client
-    useSSL: USE_SSL,
-    // Access and Secret Keys are validated at startup. 
-    // If we reach this point, they were provided.
-    accessKeyConfigured: true,
-    secretKeyConfigured: true,
-  }
-};
-
-// --- End of Configuration ---
+// Default bucket name
+const BUCKET_NAME = "edgersystem";
 
 export async function GET() {
-  // The MINIO_BUCKET_ENV is for the specific test operation of this GET request
-  const bucketToTest = MINIO_BUCKET_ENV;
-
   try {
-    if (!bucketToTest) {
-      throw new Error('MINIO_BUCKET environment variable is not set. Cannot perform bucket existence test.');
-    }
+    // List all available buckets
+    const buckets = await minioClient.listBuckets();
 
-    const exists = await minioClient.bucketExists(bucketToTest);
-
-    if (!exists) {
-      throw new Error(`Bucket '${bucketToTest}' either does not exist or is not accessible with the provided credentials.`);
+    // Check if our default bucket exists
+    let defaultBucketExists = false;
+    for (const bucket of buckets) {
+      if (bucket.name === BUCKET_NAME) {
+        defaultBucketExists = true;
+        break;
+      }
     }
 
     return NextResponse.json({
       status: "success",
-      message: `Successfully connected to MinIO and verified bucket '${bucketToTest}' exists.`,
-      details: {
-        connectionVerified: true,
-        bucketTested: bucketToTest,
-        configurationUsed: configurationReport,
+      message: `Successfully listed ${buckets.length} bucket(s)`,
+      data: {
+        buckets: buckets.map(bucket => ({
+          name: bucket.name,
+          creationDate: bucket.creationDate,
+          isDefault: bucket.name === BUCKET_NAME
+        })),
+        defaultBucket: {
+          name: BUCKET_NAME,
+          exists: defaultBucketExists
+        }
       }
     });
-  } catch (error) {
-    console.error("MinIO API Error in GET handler:", error);
-
-    const errorInfo = {
-      message: error instanceof Error ? error.message : String(error),
-      name: error instanceof Error ? error.name : 'UnknownError',
-      // Stack trace can be noisy and might expose sensitive info; consider omitting in production responses
-      // stack: error instanceof Error ? error.stack : undefined 
-    };
+  } catch (error: unknown) {
+    console.error("MinIO Error:", error);
 
     return NextResponse.json(
       {
         status: "error",
-        message: "Failed MinIO operation. See error details.",
-        details: {
-          connectionVerified: false, // Explicitly false on error path
-          bucketTested: bucketToTest || '(not specified)',
-          configurationUsed: configurationReport, // Show config even on error
-          error: errorInfo,
-        }
+        message: "Failed to list MinIO buckets",
+        error: error instanceof Error ? error.message : String(error)
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
-} 
+}

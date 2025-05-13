@@ -40,7 +40,8 @@ model Expense {
   submitted_at             DateTime @default(now())
   notes                    String?
   additional_allocation_id String?
-  image_url                String?
+  image_object_name        String?  // MinIO object name
+  image_bucket_name        String?  // MinIO bucket name
 
   // Relations
   budget                Budget                @relation(fields: [budget_id], references: [id])
@@ -100,11 +101,7 @@ model User {
   id            String    @id @default(uuid())
   username      String    @unique
   password      String
-  email         String?   @unique
-  name          String?
   role          Role      @default(USER)
-  department    String?
-  profile_image String?
   last_login    DateTime?
   is_active     Boolean   @default(true)
   created_at    DateTime  @default(now())

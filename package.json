@@ -93,14 +93,17 @@
     "sqlite3": "latest",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^11.1.0",
     "vaul": "^0.9.6",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.9",
+    "@types/mime-types": "^2.1.4",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"

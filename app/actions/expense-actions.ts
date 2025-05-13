@@ -6,7 +6,7 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { updateBudgetCalculations, trackBudgetUsage } from "@/lib/budget-update-service"
 
-// Update the Expense interface to include imageUrl
+// Update the Expense interface
 export interface Expense {
   id: string
   budgetId: string
@@ -20,10 +20,11 @@ export interface Expense {
   approvedAt?: string
   notes?: string
   additionalAllocationId?: string
-  imageUrl?: string
+  image_object_name?: string
+  image_bucket_name?: string
 }
 
-// Update the validation schema to require imageUrl
+// Update the validation schema for the new image fields
 const expenseSchema = z.object({
   budgetId: z.string().min(1, "Budget ID is required"),
   description: z.string().min(3, "Description must be at least 3 characters"),
@@ -31,7 +32,8 @@ const expenseSchema = z.object({
   date: z.string().refine((date) => !isNaN(Date.parse(date)), "Invalid date"),
   submittedBy: z.string().min(1, "Submitter is required"),
   notes: z.string().optional(),
-  imageUrl: z.string().min(1, "Receipt image is required"),
+  imageObjectName: z.string().min(1, "Receipt image object name is required"),
+  imageBucketName: z.string().min(1, "Receipt image bucket name is required"),
 })
 
 export async function createExpense(formData: FormData) {
@@ -48,7 +50,8 @@ export async function createExpense(formData: FormData) {
     const date = formData.get("date") as string
     const submittedBy = formData.get("submittedBy") as string
     const notes = (formData.get("notes") as string) || ""
-    const imageUrl = formData.get("imageUrl") as string // Get the image URL
+    const imageObjectName = formData.get("imageObjectName") as string
+    const imageBucketName = formData.get("imageBucketName") as string
 
     // Validate data
     const validatedData = expenseSchema.parse({
@@ -58,7 +61,8 @@ export async function createExpense(formData: FormData) {
       date,
       submittedBy,
       notes,
-      imageUrl,
+      imageObjectName,
+      imageBucketName,
     })
 
     // Generate a unique ID
@@ -118,7 +122,8 @@ export async function createExpense(formData: FormData) {
         submitted_by: validatedData.submittedBy,
         notes: validatedData.notes,
         additional_allocation_id: additionalAllocationId,
-        image_url: validatedData.imageUrl,
+        image_object_name: validatedData.imageObjectName,
+        image_bucket_name: validatedData.imageBucketName,
       },
     })
 
@@ -151,7 +156,7 @@ export async function createExpense(formData: FormData) {
   }
 }
 
-// Update the getExpenses function to include imageUrl
+// Update the getExpenses function for the new image fields
 export async function getExpenses() {
   try {
     // Get all expenses with budget name
@@ -173,7 +178,8 @@ export async function getExpenses() {
         submittedAt: expense.submitted_at.toISOString(),
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
-        imageUrl: expense.image_url || undefined,
+        image_object_name: expense.image_object_name || undefined,
+        image_bucket_name: expense.image_bucket_name || undefined,
       })),
     }
   } catch (error) {
@@ -231,7 +237,8 @@ export async function getExpenseById(id: string) {
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
         additionalAllocation,
-        imageUrl: expense.image_url || undefined,
+        image_object_name: expense.image_object_name || undefined,
+        image_bucket_name: expense.image_bucket_name || undefined,
       },
     }
   } catch (error) {
@@ -269,7 +276,8 @@ export async function getExpensesByBudgetId(budgetId: string) {
         submittedAt: expense.submitted_at.toISOString(),
         notes: expense.notes || undefined,
         additionalAllocationId: expense.additional_allocation_id || undefined,
-        imageUrl: expense.image_url || undefined,
+        image_object_name: expense.image_object_name || undefined,
+        image_bucket_name: expense.image_bucket_name || undefined,
       })),
     }
   } catch (error) {
