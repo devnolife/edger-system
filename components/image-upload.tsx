@@ -108,7 +108,7 @@ export function ImageUpload({ onImageUploaded, className }: ImageUploadProps) {
           <label htmlFor="receipt-image" className="flex flex-col items-center justify-center cursor-pointer">
             <UploadCloud className="h-10 w-10 text-primary/50 mb-2" />
             <p className="text-sm font-medium mb-1">Klik untuk unggah foto bukti</p>
-            <p className="text-xs text-muted-foreground">JPG, PNG, atau GIF (Maks. 5MB)</p>
+            <p className="text-xs text-muted-foreground">JPG atau PNG (Maks. 5MB)</p>
           </label>
         </div>
       ) : (

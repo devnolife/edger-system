@@ -2,13 +2,15 @@
 
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
+import { getCurrentUser } from "@/app/actions/auth-actions"
 
 type UserRole = "SUPERVISOR" | "OPERATOR"
 
 type User = {
   id: string
-  name: string
-  email: string
+  name?: string
+  username?: string
+  email?: string
   role: UserRole
 }
 
@@ -25,21 +27,39 @@ const UserRoleContext = createContext<UserRoleContextType>({
 })
 
 export function UserRoleProvider({ children }: { children: React.ReactNode }) {
-  const [role, setRole] = useState<UserRole>("SUPERVISOR")
+  const [role, setRole] = useState<UserRole>("OPERATOR")
   const [user, setUser] = useState<User | null>(null)
 
-  // Simulasi pengambilan data pengguna
+  // Fetch actual user data from the API
   useEffect(() => {
-    // Dalam aplikasi nyata, ini akan menjadi panggilan API
-    const mockUser: User = {
-      id: "1",
-      name: "Admin Pengguna",
-      email: "admin@example.com",
-      role: role,
+    const fetchUser = async () => {
+      try {
+        const userData = await getCurrentUser()
+
+        if (userData) {
+          setUser({
+            id: userData.id,
+            username: userData.username,
+            role: userData.role as UserRole
+          })
+          setRole(userData.role as UserRole)
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error)
+      }
     }
 
-    setUser(mockUser)
-  }, [role])
+    fetchUser()
+  }, [])
+
+  useEffect(() => {
+    if (user && user.role !== role) {
+      setUser({
+        ...user,
+        role: role
+      })
+    }
+  }, [role, user])
 
   return <UserRoleContext.Provider value={{ role, user, setRole }}>{children}</UserRoleContext.Provider>
 }

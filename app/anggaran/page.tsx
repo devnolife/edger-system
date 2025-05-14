@@ -22,6 +22,39 @@ import { EditBudgetDialog } from "./edit-budget-dialog"
 import { DeleteBudgetDialog } from "./delete-budget-dialog"
 import { DbConnectionStatus } from "@/components/db-connection-status"
 
+// Define the expense type for proper typing
+type Expense = {
+  id: string
+  description: string
+  amount: number
+  date: string
+  submittedBy: string
+}
+
+// Define the API budget type that comes from getBudgetById
+interface ApiBudget {
+  id: string
+  name: string
+  amount: number
+  start_date: string
+  description?: string
+  created_by: string
+  created_at: string
+  spentAmount: number
+  availableAmount: number
+  additionalAmount: number
+  pendingAmount: number
+}
+
+// Define the summary type from the API
+interface BudgetSummary {
+  totalBudget: number
+  totalSpent: number
+  totalAdditional: number
+  totalAvailable: number
+  totalPending: number
+}
+
 export default function Anggaran() {
   const { role, user } = useUserRole()
   const { toast } = useToast()
@@ -35,23 +68,16 @@ export default function Anggaran() {
   const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [budgets, setBudgets] = useState<Budget[]>([])
-  const [summary, setSummary] = useState({
+  const [summary, setSummary] = useState<BudgetSummary>({
     totalBudget: 0,
     totalSpent: 0,
     totalAdditional: 0,
     totalAvailable: 0,
+    totalPending: 0,
   })
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [budgetExpenses, setBudgetExpenses] = useState<
-    Array<{
-      id: string
-      description: string
-      amount: number
-      date: string
-      submittedBy: string
-    }>
-  >([])
+  const [budgetExpenses, setBudgetExpenses] = useState<Expense[]>([])
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(false)
 
   // Use the budget updates hook
@@ -91,15 +117,28 @@ export default function Anggaran() {
 
       // Fetch summary
       const summaryResult = await getBudgetSummary()
-      if (summaryResult.success) {
+      if (summaryResult.success && summaryResult.summary) {
         setSummary(summaryResult.summary)
       }
 
       // If there's a selected budget, refresh its details
       if (selectedBudget) {
         const budgetResult = await getBudgetById(selectedBudget.id)
-        if (budgetResult.success) {
-          setSelectedBudget(budgetResult.budget)
+        if (budgetResult.success && budgetResult.budget) {
+          // Convert the API response to our Budget type before setting state
+          const budget: Budget = {
+            id: budgetResult.budget.id,
+            name: budgetResult.budget.name,
+            amount: budgetResult.budget.amount,
+            startDate: budgetResult.budget.start_date,
+            description: budgetResult.budget.description,
+            createdBy: budgetResult.budget.created_by,
+            createdAt: budgetResult.budget.created_at,
+            availableAmount: budgetResult.budget.availableAmount,
+            spentAmount: budgetResult.budget.spentAmount,
+            additionalAmount: budgetResult.budget.additionalAmount,
+          }
+          setSelectedBudget(budget)
         }
       }
     } catch (error) {
@@ -133,7 +172,7 @@ export default function Anggaran() {
 
         // Fetch summary
         const summaryResult = await getBudgetSummary()
-        if (summaryResult.success) {
+        if (summaryResult.success && summaryResult.summary) {
           setSummary(summaryResult.summary)
         }
 
@@ -171,8 +210,7 @@ export default function Anggaran() {
     return lastUpdate && lastUpdate.budgetId === budgetId
   }
 
-  const canManageBudgets = role === "superadmin" || role === "admin"
-
+  const canManageBudgets = role === "OPERATOR"
   // Open budget details
   const openBudgetDetails = async (budget: Budget) => {
     setIsLoadingDetails(true)
@@ -186,15 +224,37 @@ export default function Anggaran() {
 
       // Fetch budget details
       const result = await getBudgetById(budget.id)
-      if (result.success) {
-        setSelectedBudget(result.budget)
+      if (result.success && result.budget) {
+        // Convert the API response to our Budget type before setting state
+        const updatedBudget: Budget = {
+          id: result.budget.id,
+          name: result.budget.name,
+          amount: result.budget.amount,
+          startDate: result.budget.start_date,
+          description: result.budget.description,
+          createdBy: result.budget.created_by,
+          createdAt: result.budget.created_at,
+          availableAmount: result.budget.availableAmount,
+          spentAmount: result.budget.spentAmount,
+          additionalAmount: result.budget.additionalAmount,
+        }
+        setSelectedBudget(updatedBudget)
 
         // After fetching budget details, fetch associated expenses
         setIsLoadingExpenses(true)
         const expensesResult = await getExpensesByBudgetId(budget.id)
-        if (expensesResult.success) {
-          setBudgetExpenses(expensesResult.expenses)
+        if (expensesResult.success && expensesResult.expenses) {
+          // Map the expenses to match our expected format
+          const formattedExpenses: Expense[] = expensesResult.expenses.map(expense => ({
+            id: expense.id,
+            description: expense.description,
+            amount: expense.amount,
+            date: expense.date,
+            submittedBy: expense.submittedBy
+          }))
+          setBudgetExpenses(formattedExpenses)
         } else {
+          setBudgetExpenses([]) // Reset to empty array on error
           toast({
             title: "Warning",
             description: "Could not load expense details. Showing limited information.",
@@ -485,7 +545,7 @@ export default function Anggaran() {
                                 <Edit className="h-4 w-4" />
                               </Button>
                             )}
-                            {role === "superadmin" && (
+                            {role === "SUPERVISOR" && (
                               <Button
                                 variant="ghost"
                                 size="icon"
