@@ -44,28 +44,21 @@ const minioClient = new Minio.Client(clientOptions);
 // --- Verify Bucket Existence ---
 async function ensureBucketExists() {
   try {
-    console.log(`Checking if bucket "${BUCKET_NAME}" exists...`);
     const exists = await minioClient.bucketExists(BUCKET_NAME);
     if (!exists) {
-      console.log(`Bucket "${BUCKET_NAME}" does not exist. Attempting to create it...`);
       try {
         await minioClient.makeBucket(BUCKET_NAME, 'us-east-1');
-        console.log(`Successfully created bucket "${BUCKET_NAME}"`);
         return true;
       } catch (createError) {
-        console.error(`Failed to create bucket "${BUCKET_NAME}":`, createError);
         throw createError;
       }
     }
-    console.log(`Bucket "${BUCKET_NAME}" exists and is accessible.`);
     return true;
   } catch (error) {
-    console.error(`Error verifying bucket "${BUCKET_NAME}" existence:`, error);
     throw error;
   }
 }
 
-// Try to verify the bucket at startup to catch configuration issues early
 ensureBucketExists().catch(err => {
   console.error("MinIO configuration error at startup:", err);
   // We don't throw here to allow the application to start even if MinIO is temporarily unavailable
@@ -78,9 +71,7 @@ async function ensureTempDirExists() {
   if (!existsSync(TEMP_UPLOAD_DIR)) {
     try {
       await mkdir(TEMP_UPLOAD_DIR, { recursive: true });
-      console.log(`Created temporary upload directory: ${TEMP_UPLOAD_DIR}`);
     } catch (error) {
-      console.error("Failed to create temporary upload directory:", error);
       throw error;
     }
   }
@@ -92,29 +83,24 @@ async function ensureTempDirExists() {
  * @returns Object with success status and temporary file path or error message
  */
 export async function processUploadedFile(formData: FormData) {
-  console.log("Starting file processing...");
 
   try {
     const file = formData.get("file") as File;
 
     // Validate file existence
     if (!file) {
-      console.error("Upload error: No file provided");
       return { success: false, error: "No file provided" };
     }
 
-    console.log(`Processing file: ${file.name}, type: ${file.type}, size: ${file.size} bytes`);
 
     // Validate file type
     const fileType = file.type;
     if (!fileType.startsWith("image/")) {
-      console.error(`Upload error: Invalid file type: ${fileType}`);
       return { success: false, error: "File must be an image" };
     }
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      console.error(`Upload error: File too large: ${file.size} bytes`);
       return { success: false, error: "File size must be less than 5MB" };
     }
 
@@ -139,12 +125,10 @@ export async function processUploadedFile(formData: FormData) {
     };
 
     // Convert file to buffer and write to temporary location
-    console.log(`Saving file to temporary location: ${tempFilePath}`);
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     await writeFile(tempFilePath, buffer);
 
-    console.log("File successfully stored in temporary location");
 
     return {
       success: true,
@@ -152,7 +136,6 @@ export async function processUploadedFile(formData: FormData) {
       previewUrl: `/api/temp-files/${tempFilename}` // Endpoint to serve temporary files for preview
     };
   } catch (error) {
-    console.error("Error processing uploaded file:", error);
 
     return {
       success: false,
@@ -173,7 +156,6 @@ export async function processUploadedFile(formData: FormData) {
  * @returns Object with success status and object name or error message
  */
 export async function finalizeUpload(tempFileData: any) {
-  console.log("Starting MinIO upload for file:", tempFileData?.tempFilename);
 
   try {
     // Verify bucket exists before attempting upload
@@ -189,11 +171,9 @@ export async function finalizeUpload(tempFileData: any) {
     const mimeType = mime.lookup(tempFileData.originalName) || 'application/octet-stream';
     const fileExtension = mime.extension(mimeType) || '';
 
-    console.log(`Generated MinIO object key: ${uniqueFileName}`);
 
     // Read the file from temporary storage
     try {
-      console.log("Starting MinIO putObject operation...");
       await minioClient.putObject(
         BUCKET_NAME,
         uniqueFileName,
@@ -207,19 +187,15 @@ export async function finalizeUpload(tempFileData: any) {
           'X-Amz-Meta-Uploaded-By': 'Edger System',
         }
       );
-      console.log("File successfully uploaded to MinIO");
 
       // After successful upload to MinIO, delete the temporary file
       try {
         await unlink(tempFileData.tempFilePath);
-        console.log(`Temporary file deleted: ${tempFileData.tempFilePath}`);
       } catch (deleteError) {
         // Log the error but don't fail the operation if temp file deletion fails
-        console.error("Warning: Failed to delete temporary file:", deleteError);
         // We continue the operation even if temp file deletion fails
       }
     } catch (uploadError) {
-      console.error("MinIO upload operation failed:", uploadError);
       throw uploadError;
     }
 
@@ -362,7 +338,6 @@ export async function getPresignedUrl(bucketName: string, objectName: string, ex
  * @deprecated Use processUploadedFile() followed by finalizeUpload() instead
  */
 export async function uploadImage(formData: FormData) {
-  console.log("DEPRECATED: Using direct uploadImage function. Consider switching to the two-step process.");
 
   try {
     // Process the file first

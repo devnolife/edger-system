@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -10,43 +10,37 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/format-date"
 import { formatRupiah } from "@/lib/format-rupiah"
-import { getExpenses } from "@/app/actions/expense-actions"
-import { getBudgets } from "@/app/actions/budget-actions"
 import { requireSupervisor, logout } from "@/app/actions/auth-actions"
+import { getSupervisorData, Activity, SupervisorSummary } from "@/app/actions/supervisor-actions"
 import { motion } from "framer-motion"
 import { FinancialSummary } from "@/components/financial-summary"
 import { RecentJournalEntries } from "@/components/recent-journal-entries"
-import { Eye, ArrowUp, Activity, FileText, FilePlus, Heart } from "lucide-react"
+import { Eye, ArrowUp, Activity as ActivityIcon, FileText, FilePlus, Heart, RefreshCw } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { LoadingOverlay } from "@/components/ui/loading-overlay"
-import { getDashboardSummary } from "@/app/actions/dashboard-actions"
-import { Header } from "@/components/header"
 import Link from "next/link"
-
-interface Activity {
-  id: string
-  type: "expense" | "budget"
-  description: string
-  amount?: number
-  date: string
-  operator: string
-  status: string
-}
+import { useToast } from "@/components/ui/use-toast"
 
 export default function SupervisorPage() {
   const { user, role } = useUserRole()
   const router = useRouter()
+  const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [activities, setActivities] = useState<Activity[]>([])
   const [activeTab, setActiveTab] = useState("all")
-  const [dashboardData, setDashboardData] = useState({
+  const [dashboardData, setDashboardData] = useState<SupervisorSummary>({
     totalExpenses: 0,
     expenseGrowth: 0,
     totalBudgetItems: 0,
     totalAdditionalBudgetItems: 0,
+    activeOperatorsCount: 0,
+    totalActivities: 0,
+    lastUpdateTime: new Date().toISOString()
   })
   const [error, setError] = useState<string | null>(null)
 
+  // Auth check effect
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -60,63 +54,68 @@ export default function SupervisorPage() {
     checkAuth()
   }, [router])
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
+  // Data fetching function
+  const fetchData = useCallback(async (showRefreshingState = true) => {
+    try {
+      if (showRefreshingState) {
+        setIsRefreshing(true)
+      } else {
         setIsLoading(true)
+      }
 
-        const summaryResult = await getDashboardSummary()
-        if (summaryResult.success && summaryResult.data) {
-          setDashboardData(summaryResult.data)
+      const result = await getSupervisorData()
+
+      if (result.success) {
+        if (result.summary) {
+          setDashboardData(result.summary)
         }
 
-        const expensesResult = await getExpenses()
-        const expenses = expensesResult.success ? expensesResult.expenses : []
+        if (result.activities) {
+          setActivities(result.activities)
+        }
 
-        const budgetsResult = await getBudgets()
-        const budgets = budgetsResult.success ? budgetsResult.budgets : []
-
-        const formattedActivities: Activity[] = [
-          ...(expenses?.map(expense => ({
-            id: expense.id,
-            type: "expense" as const,
-            description: expense.description,
-            amount: expense.amount,
-            date: expense.date,
-            operator: expense.submittedBy,
-            status: expense.additionalAllocationId ? "Dengan Alokasi Tambahan" : "Reguler"
-          })) || []),
-          ...(budgets?.map(budget => ({
-            id: budget.id,
-            type: "budget" as const,
-            description: budget.name,
-            amount: Number(budget.amount),
-            date: budget.startDate,
-            operator: budget.createdBy,
-            status: "Anggaran"
-          })) || [])
-        ]
-
-        // Sort by date descending
-        formattedActivities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-
-        setActivities(formattedActivities)
-      } catch (error) {
-        console.error("Error fetching data:", error)
-        setError("Terjadi kesalahan saat memuat data")
-      } finally {
-        setIsLoading(false)
+        setError(null)
+      } else {
+        setError(result.error || "Gagal memuat data")
       }
+    } catch (error) {
+      console.error("Error fetching data:", error)
+      setError("Terjadi kesalahan saat memuat data")
+    } finally {
+      setIsLoading(false)
+      setIsRefreshing(false)
     }
-
-    fetchData()
   }, [])
+
+  // Initial data load
+  useEffect(() => {
+    fetchData(false)
+  }, [fetchData])
+
+  // Manual refresh handler
+  const handleRefresh = async () => {
+    try {
+      await fetchData(true)
+      toast({
+        title: "Data diperbarui",
+        description: `Data terakhir diperbarui: ${new Date().toLocaleTimeString()}`,
+        variant: "default"
+      })
+    } catch (error) {
+      toast({
+        title: "Gagal memperbarui data",
+        description: "Silakan coba lagi nanti",
+        variant: "destructive"
+      })
+    }
+  }
 
   // Filter activities based on active tab
   const filteredActivities = activities.filter(activity => {
     if (activeTab === "all") return true
     if (activeTab === "expenses") return activity.type === "expense"
     if (activeTab === "budgets") return activity.type === "budget"
+    if (activeTab === "allocations") return activity.type === "additionalAllocation"
     return true
   })
 
@@ -134,6 +133,17 @@ export default function SupervisorPage() {
     hidden: { y: 20, opacity: 0 },
     show: { y: 0, opacity: 1 },
   }
+
+  // Format the last update time
+  const formattedLastUpdate = dashboardData.lastUpdateTime
+    ? new Date(dashboardData.lastUpdateTime).toLocaleString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+    : "Belum diperbarui"
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#fafafa] dark:bg-[#121212] flex flex-col">
@@ -195,6 +205,21 @@ export default function SupervisorPage() {
                 Pantau dan verifikasi semua kegiatan sistem
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full px-4 flex items-center gap-2"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                <span>{isRefreshing ? "Memperbarui..." : "Refresh Data"}</span>
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Diperbarui: {formattedLastUpdate}
+              </p>
+            </div>
           </motion.div>
 
           {isLoading ? (
@@ -205,7 +230,7 @@ export default function SupervisorPage() {
             <div className="flex items-center justify-center h-[400px]">
               <div className="text-center">
                 <p className="text-red-500 mb-2">Error: {error}</p>
-                <Button onClick={() => window.location.reload()}>Coba Lagi</Button>
+                <Button onClick={handleRefresh}>Coba Lagi</Button>
               </div>
             </div>
           ) : (
@@ -229,7 +254,7 @@ export default function SupervisorPage() {
                             </p>
                           </div>
                           <div className="h-12 w-12 rounded-full bg-[#A1E3F9]/10 flex items-center justify-center">
-                            <Activity className="h-6 w-6 text-[#A1E3F9]" />
+                            <ActivityIcon className="h-6 w-6 text-[#A1E3F9]" />
                           </div>
                         </div>
                       </CardContent>
@@ -284,13 +309,13 @@ export default function SupervisorPage() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Total Aktivitas</p>
-                            <h3 className="text-2xl font-bold mt-1">{activities.length}</h3>
+                            <h3 className="text-2xl font-bold mt-1">{dashboardData.totalActivities}</h3>
                             <p className="text-xs flex items-center mt-1 text-green-500 font-medium">
-                              Operator aktif: {new Set(activities.map(act => act.operator)).size}
+                              Operator aktif: {dashboardData.activeOperatorsCount}
                             </p>
                           </div>
                           <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                            <Activity className="h-6 w-6 text-green-500" />
+                            <ActivityIcon className="h-6 w-6 text-green-500" />
                           </div>
                         </div>
                       </CardContent>
@@ -333,10 +358,11 @@ export default function SupervisorPage() {
                   </CardHeader>
                   <CardContent className="p-6">
                     <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
-                      <TabsList className="grid w-full grid-cols-3 mb-6 rounded-xl">
+                      <TabsList className="grid w-full grid-cols-4 mb-6 rounded-xl">
                         <TabsTrigger value="all" className="rounded-lg">Semua</TabsTrigger>
                         <TabsTrigger value="expenses" className="rounded-lg">Pengeluaran</TabsTrigger>
                         <TabsTrigger value="budgets" className="rounded-lg">Anggaran</TabsTrigger>
+                        <TabsTrigger value="allocations" className="rounded-lg">Alokasi Tambahan</TabsTrigger>
                       </TabsList>
 
                       <TabsContent value={activeTab} className="mt-0">
@@ -380,7 +406,9 @@ export default function SupervisorPage() {
                                           ? activity.status.includes("Tambahan")
                                             ? "bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300"
                                             : "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                                          : ""
+                                          : activity.type === "additionalAllocation"
+                                            ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300"
+                                            : ""
                                           }`}
                                       >
                                         {activity.status}
@@ -394,9 +422,12 @@ export default function SupervisorPage() {
                                         asChild
                                       >
                                         <a
-                                          href={activity.type === "expense"
-                                            ? `/pengeluaran?expense=${activity.id}`
-                                            : `/anggaran?budgetId=${activity.id}`
+                                          href={
+                                            activity.type === "expense"
+                                              ? `/pengeluaran?expense=${activity.id}`
+                                              : activity.type === "budget"
+                                                ? `/anggaran?budgetId=${activity.id}`
+                                                : `/anggaran-tambahan?allocationId=${activity.id}`
                                           }
                                         >
                                           <Eye className="h-4 w-4" />

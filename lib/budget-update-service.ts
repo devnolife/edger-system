@@ -7,10 +7,8 @@ import { Prisma } from "@prisma/client"
 export async function updateBudgetCalculations(budgetId: string, expenseAmount: number, isApproved: boolean) {
   try {
     // No need to update any status fields since all expenses are automatically approved
-    console.log(`Budget ${budgetId} updated with expense amount ${expenseAmount}`)
     return true
   } catch (error) {
-    console.error("Error updating budget calculations:", error)
     return false
   }
 }
@@ -26,20 +24,19 @@ export async function trackBudgetUsage(budgetId: string, amount: number, expense
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'budget_usage_history'
       ) as exists
-    `
+    ` as { exists: boolean }[]
 
     if (!tableExists[0]?.exists) {
-      console.log("Budget usage history tracking is not enabled")
       return false
     }
 
     // Create a new budget usage history record
     await prisma.budgetUsageHistory.create({
       data: {
-        budgetId,
-        expenseId,
+        budget_id: budgetId,
+        expense_id: expenseId,
         amount: new Prisma.Decimal(amount),
-        recordedAt: new Date(),
+        recorded_at: new Date(),
       },
     })
 

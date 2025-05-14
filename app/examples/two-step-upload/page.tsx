@@ -57,15 +57,15 @@ export default function TwoStepUploadExample() {
 
       if (receipt && !receipt.url) {
         // This is a temporary file that needs to be finalized
-        console.log("Finalizing file upload to MinIO...");
         const uploadResult = await finalizeUpload(receipt);
 
         if (!uploadResult.success) {
           throw new Error(uploadResult.error || "Failed to upload file");
         }
 
-        fileUrl = uploadResult.url;
-        fileKey = uploadResult.key;
+        // Access the correct properties based on the uploadResult structure
+        fileUrl = uploadResult.objectName ? `/${uploadResult.bucketName}/${uploadResult.objectName}` : null;
+        fileKey = uploadResult.objectName || null;
       } else if (receipt && receipt.url) {
         // This is already a finalized file
         fileUrl = receipt.url;
@@ -80,7 +80,6 @@ export default function TwoStepUploadExample() {
         receiptKey: fileKey,
       };
 
-      console.log("Saving complete form data:", completeData);
 
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));

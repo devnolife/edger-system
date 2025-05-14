@@ -13,7 +13,6 @@ import { motion } from "framer-motion"
 export function Sidebar() {
   const pathname = usePathname()
   const { role } = useUserRole()
-  console.log("🚀 ~ Sidebar ~ role:", role)
 
   const routes = [
     {
