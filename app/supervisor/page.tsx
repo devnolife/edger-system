@@ -13,15 +13,26 @@ import { formatRupiah } from "@/lib/format-rupiah"
 import { requireSupervisor, logout } from "@/app/actions/auth-actions"
 import { getSupervisorData, Activity, SupervisorSummary } from "@/app/actions/supervisor-actions"
 import { motion } from "framer-motion"
-import { FinancialSummary } from "@/components/financial-summary"
-import { RecentJournalEntries } from "@/components/recent-journal-entries"
 import { Eye, ArrowUp, Activity as ActivityIcon, FileText, FilePlus, Heart, RefreshCw } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { LoadingOverlay } from "@/components/ui/loading-overlay"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
+import dynamic from "next/dynamic"
+
+// Dynamically import components
+const FinancialSummary = dynamic(() => import("@/components/financial-summary").then(mod => mod.FinancialSummary), {
+  loading: () => <div className="h-[300px] flex items-center justify-center"><LoadingSpinner size="md" text="Memuat..." /></div>,
+  ssr: false
+})
+
+const RecentJournalEntries = dynamic(() => import("@/components/recent-journal-entries").then(mod => mod.RecentJournalEntries), {
+  loading: () => <div className="h-[300px] flex items-center justify-center"><LoadingSpinner size="md" text="Memuat..." /></div>,
+  ssr: false
+})
 
 export default function SupervisorPage() {
+
   const { user, role } = useUserRole()
   const router = useRouter()
   const { toast } = useToast()
