@@ -1,12 +1,11 @@
 "use server";
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { sign, verify } from "jsonwebtoken";
-import { SignOptions } from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
@@ -36,6 +35,12 @@ export async function login(formData: FormData) {
     // Find user by username
     const user = await prisma.user.findUnique({
       where: { username },
+      select: {
+        id: true,
+        username: true,
+        password: true,
+        role: true,
+      },
     });
 
     if (!user) {
@@ -50,10 +55,11 @@ export async function login(formData: FormData) {
 
     if (!passwordMatch) {
       return {
-        error: "Password yang Anda masukkan salah",
+        error: "Username atau password salah",
         success: false,
       };
     }
+
     // Generate JWT token
     const token = sign(
       {
@@ -111,7 +117,7 @@ export async function getCurrentUser() {
     ) as {
       id: string;
       username: string;
-      role: string;
+      role: Role;
     };
 
     const user = await prisma.user.findUnique({
@@ -140,7 +146,17 @@ export async function requireAuth() {
   return user;
 }
 
-export async function isAdmin() {
+export async function requireSupervisor() {
+  const user = await getCurrentUser();
+
+  if (!user || user.role !== "SUPERVISOR") {
+    redirect("/dashboard");
+  }
+
+  return user;
+}
+
+export async function requireOperator() {
   const user = await getCurrentUser();
 
   if (!user || user.role !== "OPERATOR") {

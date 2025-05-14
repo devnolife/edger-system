@@ -11,6 +11,7 @@ import { formatRupiah } from "@/lib/format-rupiah"
 import { getExpenses } from "@/app/actions/expense-actions"
 import { getBudgets } from "@/app/actions/budget-actions"
 import { LoadingOverlay } from "@/components/ui/loading-overlay"
+import { requireSupervisor } from "@/app/actions/auth-actions"
 
 interface Activity {
   id: string
@@ -30,12 +31,19 @@ export default function SupervisorPage() {
   const [activeTab, setActiveTab] = useState("all")
 
   useEffect(() => {
-    // Redirect if not supervisor
-    if (role !== "SUPERVISOR") {
-      router.push("/dashboard")
-      return
+    const checkAuth = async () => {
+      try {
+        await requireSupervisor()
+      } catch (error) {
+        router.push("/dashboard")
+        return
+      }
     }
 
+    checkAuth()
+  }, [router])
+
+  useEffect(() => {
     const fetchActivities = async () => {
       try {
         setIsLoading(true)
@@ -82,7 +90,7 @@ export default function SupervisorPage() {
     }
 
     fetchActivities()
-  }, [role, router])
+  }, [])
 
   // Filter activities based on active tab
   const filteredActivities = activities.filter(activity => {
